@@ -1,22 +1,25 @@
 /*
-    Copyright © 2023, ParallelChain Lab 
+    Copyright © 2023, ParallelChain Lab
     Licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0
 */
 
 //! [Network], the handle type you use to send messages.
-//! 
+//!
 //! Network is returned from [engine::start](crate::engine::start). It keeps the thread operating the
 //! peer alive--the peer stops working when it is dropped.
-//! 
+//!
 //! To send a message using Network, call its [sender](Network::sender) method to get a sender, then
 //! call `.send()` on the sender passing in a [SendCommand].
 
-use std::{sync::Arc, collections::HashMap};
+use crate::messages::{Message, NetworkTopic};
 use futures::{Future, FutureExt};
-use tokio::{task::{JoinError, JoinHandle}, sync::Mutex};
 use libp2p::PeerId;
 use pchain_types::cryptography::PublicAddress;
-use crate::messages::{Message, NetworkTopic};
+use std::{collections::HashMap, sync::Arc};
+use tokio::{
+    sync::Mutex,
+    task::{JoinError, JoinHandle},
+};
 
 /// Network is the handle returned by [crate::engine::start]. It provides
 /// Inter-process messaging between application and p2p network.
@@ -39,13 +42,18 @@ impl Network {
     }
 
     /// Get list of the discovered and identified addresses in the network
-    pub async fn list_addresses(&self) -> Vec<PublicAddress>{
-        self.peer_public_addrs.lock().await.values().copied().collect()
+    pub async fn list_addresses(&self) -> Vec<PublicAddress> {
+        self.peer_public_addrs
+            .lock()
+            .await
+            .values()
+            .copied()
+            .collect()
     }
 
     /// abort the networking process
-    /// 
-    /// ### Example: 
+    ///
+    /// ### Example:
     /// ```no_run
     /// let network = pchain_network::start(config, gates).await.unwrap();
     /// // ...
@@ -59,7 +67,10 @@ impl Network {
 
 impl Future for Network {
     type Output = Result<(), JoinError>;
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         let mut s = self;
         s.network_thread.poll_unpin(cx)
     }
@@ -72,5 +83,5 @@ pub enum SendCommand {
     SendTo(PublicAddress, Message),
 
     /// does not care which peer would be interested in
-    Broadcast(NetworkTopic, Message)
+    Broadcast(NetworkTopic, Message),
 }
