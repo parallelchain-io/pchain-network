@@ -14,7 +14,9 @@ doctest = false
 [dependencies]
 async-trait = "0.1"
 base64url = "0.1.0"
+borsh = "0.10.2"
 futures = "0.3.21"
+hotstuff_rs = "0.2.1"
 libp2p = { version = "0.52.1", features = ["dns", "gossipsub", "identify", "ping", "tcp", "kad", "noise", "yamux", "macros", "tokio"]}
 log = "0.4"
 pchain-types = "0.4.3"

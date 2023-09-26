@@ -3,156 +3,207 @@
     Licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0
 */
 
-//! Messages that can be sent using Gossipsub, as well as chainable "gates" to process them on receipt.
+//! Messages that can be sent over Gossipsub.
 //!
-//! This module defines four main types:
-//! - [Message]: arbitrary data that can be sent over Gossipsub.
-//! - [Envelope]: a wrapper over message which contains its origin.
-//! - [MessageGateChain]: a chain of [MessageGate]s.
-//! - [NetworkTopic]: the pub/sub topic of a message.
+//! This module defines three main message-related types:
+//! - [Topic]: topic of the gossipsub message in the network.
+//! - [Message]: data that can be sent over Gossipsub.
+//! - [Envelope]: a wrapper over the message and its origin.
 //!
-//! Message flow starts with a Message received from the network. This message is passed as Envelope into
-//! chain of [MessageGate]. Each gate examinates the message's [NetworkTopic] to decide whether it should be
-//! proceed. If the gate is not interested in the topic, the message is directly passed to the next gate. Otherwise,
-//! the message is proceeded and then the gate can decide whether the message should be passed to next gate, or
-//! terminate this message flow.
+//! Message flow starts with a [Message] received from the network. This message is passed as [Envelope] into
+//! [MessageGateChain] and is processed by the [MessageGate].
 
-use async_trait::async_trait;
+use borsh::BorshSerialize;
 use libp2p::gossipsub::IdentTopic;
-use pchain_types::cryptography::PublicAddress;
+use pchain_types::{
+    blockchain::Transaction,
+    cryptography::{PublicAddress, Sha256Hash},
+    serialization::Serializable,
+};
 
-use crate::conversions;
+/// Hash of the message topic.
+pub type MessageTopicHash = libp2p::gossipsub::TopicHash;
 
-/// The arbitrary user-defined data that is being transmitted within the network.
-pub type Message = Vec<u8>;
+/// [Topic] defines the topics available for subscribing.
+#[derive(Debug, Clone)]
+pub enum Topic {
+    Consensus,
+    Mempool,
+    DroppedTx,
+    Mailbox(PublicAddress),
+}
 
-/// Envelope encapsulates the message received from the p2p network with the network
-/// information such as sender address.
+impl Topic {
+    pub fn is(self, topic_hash: &MessageTopicHash) -> bool {
+        topic_hash == &self.hash()
+    }
+
+    pub fn is_mailbox(topic_hash: &MessageTopicHash, node_address: PublicAddress) -> bool {
+        topic_hash == &Topic::Mailbox(node_address).hash()
+    }
+
+    pub fn hash(self) -> MessageTopicHash {
+        IdentTopic::from(self).hash()
+    }
+}
+
+impl From<Topic> for IdentTopic {
+    fn from(topic: Topic) -> Self {
+        let str = match topic {
+            Topic::Consensus => "consensus".to_string(),
+            Topic::Mempool => "mempool".to_string(),
+            Topic::DroppedTx => "droppedTx".to_string(),
+            Topic::Mailbox(addr) => base64url::encode(addr),
+        };
+        IdentTopic::new(str)
+    }
+}
+
+/// [Message] contains the three types of messages that are allowed to be sent or received within the network.
 #[derive(Clone)]
-pub struct Envelope {
-    /// The origin of the received message
-    pub origin: PublicAddress,
-
-    /// The message encapsulated
-    pub message: Message,
+pub enum Message {
+    Consensus(hotstuff_rs::messages::Message),
+    Mempool(Transaction),
+    DroppedTx(DroppedTxMessage),
 }
 
-/// MessageGate is a message handler to proceed the message. It is used
-/// with [MessageGateChain] to pass the message to other gate along the chain,
-/// as well as stop passing message to the next gate.
-///
-/// Macro `async_trait` has to be added for using this trait, Example:
-///
-/// ```no_run
-/// struct MyGate {}
-///
-/// #[async_trait]
-/// impl MessageGate for MyGate {
-///     async fn can_proceed(&self, topic_hash: &NetworkTopicHash) -> bool {
-///         // ... topic filtering
-///         true
-///     }
-///     async fn proceed(&self, envelope: Envelope) -> bool {
-///         // ... do something with envelope
-///         false // pass the message to next gate
-///     }
-/// }
-/// ```
-#[async_trait]
-pub trait MessageGate: Send + Sync + 'static {
-    /// check if the message type can be accepted to be proceed
-    async fn can_proceed(&self, topic_hash: &NetworkTopicHash) -> bool;
-
-    /// proceed the message and return true if the chain should be terminated
-    async fn proceed(&self, envelope: Envelope) -> bool;
-}
-
-/// Chain of MessageGate. It consists of a sequence of message handlers.
-/// Each message handler (Gate) implements its own message processing logic. Hence,
-/// the chain of gates defines a complete flow of message processing.
-///
-/// ### Example
-///
-/// To add Gate to the chain:
-/// ```no_run
-/// let chain = MessageGateChain::new()
-///     .chain(message_handler_1)
-///     .chain(message_handler_2);
-/// ```
-#[derive(Default)]
-pub struct MessageGateChain {
-    gates: Vec<Box<dyn MessageGate>>,
-}
-
-impl MessageGateChain {
-    pub fn new() -> Self {
-        Self { gates: Vec::new() }
-    }
-
-    /// append a Message Gate at the end of the chain
-    pub fn chain(mut self, gate: impl MessageGate) -> Self {
-        self.gates.push(Box::new(gate));
-        self
-    }
-
-    /// message_in inputs the received message and pass it to the chain of MessageGate
-    pub(crate) async fn message_in(&self, topic_hash: &NetworkTopicHash, envelope: Envelope) {
-        for gate in &self.gates {
-            if gate.can_proceed(topic_hash).await && gate.proceed(envelope.clone()).await {
-                break;
-            }
+impl From<Message> for Vec<u8> {
+    fn from(msg: Message) -> Self {
+        match msg {
+            Message::Consensus(msg) => msg.try_to_vec().unwrap(),
+            Message::Mempool(txn) => Serializable::serialize(&txn),
+            Message::DroppedTx(msg) => msg.try_to_vec().unwrap(),
         }
     }
 }
 
-#[derive(Debug)]
-/// The Topic of the gossipsub message in the network. It basically wraps over [IdentTopic].
-pub struct NetworkTopic(IdentTopic);
+// [DroppedTxMessage] defines data content for Message::DroppedTx.
+#[derive(Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub enum DroppedTxMessage {
+    MempoolDroppedTx {
+        txn: Transaction,
+        status_code: DroppedTxStatusCode,
+    },
+    ExecutorDroppedTx {
+        tx_hash: Sha256Hash,
+        status_code: DroppedTxStatusCode,
+    },
+}
 
-/// Hash of the Network message topic.
-pub type NetworkTopicHash = libp2p::gossipsub::TopicHash;
+#[derive(Clone)]
+pub enum DroppedTxStatusCode {
+    Invalid,
+    NonceTooLow,
+    NonceInaccessible,
+}
 
-impl From<NetworkTopic> for IdentTopic {
-    fn from(topic: NetworkTopic) -> Self {
-        topic.0
+impl From<&DroppedTxStatusCode> for u16 {
+    fn from(status_code: &DroppedTxStatusCode) -> Self {
+        match status_code {
+            DroppedTxStatusCode::Invalid => 0x515_u16,
+            DroppedTxStatusCode::NonceTooLow => 0x516_u16,
+            DroppedTxStatusCode::NonceInaccessible => 0x517_u16,
+        }
     }
 }
 
-impl From<PublicAddress> for NetworkTopic {
-    fn from(address: PublicAddress) -> Self {
-        Self(IdentTopic::new(conversions::base64_string(address)))
+impl borsh::BorshSerialize for DroppedTxStatusCode {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        let status_code: u16 = self.into();
+        status_code.serialize(writer)
     }
 }
 
-impl NetworkTopic {
-    pub fn new(topic: String) -> Self {
-        NetworkTopic(IdentTopic::new(topic))
+impl borsh::BorshDeserialize for DroppedTxStatusCode {
+    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let status_code = match u16::deserialize_reader(reader) {
+            Ok(0x515_u16) => DroppedTxStatusCode::Invalid,
+            Ok(0x516_u16) => DroppedTxStatusCode::NonceTooLow,
+            Ok(0x517_u16) => DroppedTxStatusCode::NonceInaccessible,
+            _ => panic!("Invalid droppedTx status code."),
+        };
+        Ok(status_code)
     }
+}
 
-    pub fn hash(&self) -> libp2p::gossipsub::TopicHash {
-        self.0.hash()
-    }
+/// [Envelope] encapsulates the message received from the p2p network with it's sender address.
+#[derive(Clone)]
+pub struct Envelope {
+    /// The origin of the message
+    pub origin: PublicAddress,
+
+    /// The message encapsulated
+    pub message: Vec<u8>,
 }
 
 #[cfg(test)]
 
 mod test {
+    use crate::conversions;
+
     use super::*;
     use libp2p::identity::Keypair;
 
     #[test]
-    fn test_network_topic() {
-        // Create new Network topic
-        let network_topic = NetworkTopic::new(String::from("new topic!"));
-        let topic_hash = network_topic.0.hash();
-        let ident_topic = IdentTopic::from(network_topic);
-        assert_eq!(ident_topic.hash(), topic_hash);
+    fn test_broadcast_topic() {
+        // Mempool topic
+        let mempool_topic = Topic::Mempool;
 
-        // Create new Network topic with NetworkTopic::from() should result in same hash as creating with a public address string
-        let test_public_address =
-            conversions::public_address(&Keypair::generate_ed25519().public()).unwrap();
-        let network_topic_from_address = NetworkTopic::from(test_public_address);
-        let network_topic = NetworkTopic::new(String::from(base64url::encode(test_public_address)));
-        assert_eq!(network_topic_from_address.hash(), network_topic.hash());
+        let ident_topic = IdentTopic::new("mempool".to_string());
+        assert_eq!(mempool_topic.hash(), ident_topic.hash());
+
+        // Consensus topic
+        let consensus_topic = Topic::Consensus;
+
+        let ident_topic = IdentTopic::new("consensus".to_string());
+        assert_eq!(consensus_topic.hash(), ident_topic.hash());
+
+        // Dropped Tx Topic
+        let droppedtx_topic = Topic::DroppedTx;
+
+        let ident_topic = IdentTopic::new("droppedTx".to_string());
+        assert_eq!(droppedtx_topic.hash(), ident_topic.hash());
+
+        // Mailbox Topic
+        let addr = [1u8;32];
+        let mailbox_topic = Topic::Mailbox(addr);
+
+        let ident_topic = IdentTopic::new(base64url::encode(addr));
+        assert_eq!(mailbox_topic.hash(), ident_topic.hash())
+    }
+
+    #[test]
+    fn test_mailbox_topic() {
+        // Create new Network topic with MessageTopic::from() should result in same hash as creating with a public address string
+        let test_public_address: PublicAddress =
+            conversions::PublicAddress::try_from(Keypair::generate_ed25519().public())
+                .unwrap()
+                .into();
+        let test_topic = Topic::Mailbox(test_public_address);
+
+        let expected_topic = IdentTopic::new(String::from(base64url::encode(test_public_address)));
+        assert_eq!(test_topic.hash(), expected_topic.hash());
+    }
+
+    #[test]
+    fn test_classify_topic() {
+        let test_public_address: PublicAddress =
+            conversions::PublicAddress::try_from(Keypair::generate_ed25519().public())
+                .unwrap()
+                .into();
+        let mempool_msg_hash = Topic::Mempool.hash();
+        assert!(Topic::Mempool.is(&mempool_msg_hash));
+        assert!(!Topic::is_mailbox(&mempool_msg_hash, test_public_address));
+
+        let consensus_msg_hash = Topic::Consensus.hash();
+        assert!(Topic::Consensus.is(&consensus_msg_hash));
+        assert!(!Topic::is_mailbox(&consensus_msg_hash, test_public_address));
+
+        let droppedtx_msg_hash = Topic::DroppedTx.hash();
+        assert!(Topic::DroppedTx.is(&droppedtx_msg_hash));
+        assert!(!Topic::is_mailbox(&droppedtx_msg_hash, test_public_address));
+
+        let mailbox_topic_hash = Topic::Mailbox(test_public_address).hash();
+        assert!(Topic::is_mailbox(&mailbox_topic_hash, test_public_address));
     }
 }
