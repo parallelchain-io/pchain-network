@@ -5,7 +5,7 @@
 
 //! Data conversion functions that are used throughout this library.
 //!
-//! The followings are implemented for converting between different types:
+//! The following are implemented for converting between different types:
 //!     - From<[PublicAddress]> for [ParallelChain PublicAddress](pchain_types::cryptography::PublicAddress)
 //!     - TryFrom<identity::PublicKey> for [PublicAddress]
 //!     - TryFrom<identity::PeerId> for [PublicAddress]

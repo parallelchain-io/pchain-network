@@ -12,7 +12,7 @@
 use crate::Config;
 use crate::engine;
 use crate::message_gate::MessageGateChain;
-use crate::messages::{DroppedTxMessage, Message, Topic};
+use crate::messages::{Message, Topic};
 use pchain_types::{blockchain::Transaction, cryptography::PublicAddress};
 
 /// [NetworkHandle] provides inter-process messaging between application and the p2p
@@ -45,24 +45,17 @@ impl NetworkHandle {
         ));
     }
 
-    pub fn broadcast_dropped_tx_msg(&self, content: DroppedTxMessage) {
+    pub fn broadcast_hotstuff_rs_msg(&self, content: hotstuff_rs::messages::Message) {
         let _ = self.sender.try_send(SendCommand::Broadcast(
-            Topic::DroppedTx,
-            Message::DroppedTx(content),
-        ));
-    }
-
-    pub fn broadcast_consensus_msg(&self, content: hotstuff_rs::messages::Message) {
-        let _ = self.sender.try_send(SendCommand::Broadcast(
-            Topic::Consensus,
-            Message::Consensus(content),
+            Topic::HotstuffRS,
+            Message::HotstuffRS(content),
         ));
     }
 
     pub fn send_to(&self, address: PublicAddress, content: hotstuff_rs::messages::Message) {
         let _ = self
             .sender
-            .try_send(SendCommand::SendTo(address, Message::Consensus(content)));
+            .try_send(SendCommand::SendTo(address, Message::HotstuffRS(content)));
     }
 }
 

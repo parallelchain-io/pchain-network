@@ -63,6 +63,5 @@ impl MessageGateChain {
         if let Some(gate) = self.gates.iter().find(|gate| gate.accepted(topic_hash)) {
             gate.process(envelope).await
         };
-
     }
 }

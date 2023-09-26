@@ -16,8 +16,11 @@ pub const PEER_DISCOVERY_INTERVAL: u64 = 10;
 pub const HEARTBEAT_SECS: u64 = 10;
 
 // PeerBehaviour configuration
-pub const PROTOCOL_NAME: &str = "/pchain_p2p/1.0.0";
+pub const PROTOCOL_NAME: &str = "/parallelchain_mainnet/v0.5";
 
 // Overriding GossipSub configuration
 pub const MAX_TRANSMIT_SIZE: usize = 4;
 pub const MEGABYTES: usize = 1048576;
+
+// Maximum distance between peers to subscribe each other mailbox topic
+pub const MAX_MAILBOX_DISTANCE: u32 = 255;

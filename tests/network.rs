@@ -8,7 +8,7 @@ use libp2p::{identity::{Keypair, PublicKey}, gossipsub::TopicHash};
 use pchain_network::{
     config::{Config, Peer},
     message_gate::{MessageGate, MessageGateChain},
-    messages::{Topic, Envelope, Message},
+    messages::{Envelope, Message, Topic},
     NetworkHandle,
 };
 use pchain_types::{blockchain::Transaction, cryptography::PublicAddress};
@@ -21,8 +21,8 @@ fn base_tx(signer: PublicAddress) -> Transaction {
         gas_limit: 200000,
         max_base_fee_per_gas: 8,
         priority_fee_per_gas: 0,
-        hash: [0u8; 32],
         signature: [0u8; 64],
+        hash: [0u8; 32],
     }
 }
 
@@ -115,14 +115,14 @@ async fn test_send_to() {
 }
 
 // - Network: Node1, Node2, Node3
-// - Node1: keep sending message to Node2 only
-// - Node2: set Node1 as bootnode, listens to subscribed topics
-// - Node3: set Node1 as bootnode, should not process any message
+// - Node1: keep sending message of Node2 Mailbox topic
+// - Node2: set Node1 as bootnode, receives message from Node 1
+// - Node3: set Node2 as bootnode, should subscribe to Node2's mailbox topic and receive corresponding message
 #[tokio::test]
 async fn test_send_to_only_specific_receiver() {
     let (address_1, node_1, _) = node(30005, vec![], None, vec![]).await;
 
-    let (address_2, _node_2, _) = node(
+    let (address_2, _node_2, receiver_gate_2) = node(
         30006,
         vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005)],
         None,
@@ -130,7 +130,7 @@ async fn test_send_to_only_specific_receiver() {
     )
     .await;
 
-    let (_address_3, _node_3, receiver_gate) = node(
+    let (_address_3, _node_3, receiver_gate_3) = node(
         30007,
         vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005)],
         None,
@@ -142,18 +142,23 @@ async fn test_send_to_only_specific_receiver() {
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
+    let message = create_sync_req(1);
+
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_to(address_2, create_sync_req(1));
+                node_1.send_to(address_2, message.clone());
 
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                let node3_received = receiver_gate.received().await;
-                if node3_received {
-                    panic!("Wrong recipient");
+                let node3_received = receiver_gate_3.received().await;
+                let node2_received = receiver_gate_2.received().await;
+                if node3_received && node2_received{
+                    assert_eq!(receiver_gate_3.get_message().await, message.try_to_vec().unwrap());
+                    assert_eq!(receiver_gate_3.get_origin().await, address_1);
+                    return
                 }
             }
         }
@@ -218,7 +223,7 @@ async fn test_sparse_messaging() {
 }
 
 // - Network: Node1
-// - Node1: keep sending message itself only
+// - Node1: keep sending message to itself only
 #[tokio::test]
 async fn test_send_to_self() {
     let (address_1, node_1, receiver_gate) = node(30013, vec![], None, vec![]).await;
@@ -261,7 +266,7 @@ async fn test_broadcast_different_topics() {
         30015,
         vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30014)],
         Some(Topic::Mempool),
-        vec![Topic::Consensus],
+        vec![Topic::HotstuffRS],
     )
     .await;
 
@@ -311,8 +316,7 @@ pub async fn node(
     };
     let message_chain = MessageGateChain::new().append(gate.clone());
 
-    let node = pchain_network::NetworkHandle::start(config, subscribe_topics, message_chain)
-        .await;
+    let node = pchain_network::NetworkHandle::start(config, subscribe_topics, message_chain).await;
 
     (address, node, gate)
 }
@@ -335,7 +339,7 @@ pub struct MessageCounts {
     origin: Arc<Mutex<PublicAddress>>,
 }
 
-impl MessageCounts {    
+impl MessageCounts {
     fn new(topic: Topic) -> Self {
         Self {
             topic,

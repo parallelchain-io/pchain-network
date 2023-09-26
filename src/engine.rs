@@ -14,6 +14,7 @@
 //! ### Events Handling
 //!
 //! Upon receiving the Libp2p Identify event, peer information is added to the routing table.
+//! If the peer is sufficiently close, subscribe to the peer's mailbox topic.
 //!
 //! Upon receiving the Libp2p Gossipsub Message event, the message received will be passed to
 //! the chain of message handlers ([crate::messages::MessageGate]).
@@ -28,7 +29,9 @@ use futures::StreamExt;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
     dns::TokioDnsConfig,
-    gossipsub, identify, identity, noise,
+    gossipsub, identify, identity,
+    kad::KBucketKey,
+    noise,
     swarm::{SwarmBuilder, SwarmEvent},
     tcp, yamux, Multiaddr, PeerId, Transport,
 };
@@ -73,7 +76,7 @@ pub(crate) async fn start(
         &local_keypair,
         constants::HEARTBEAT_SECS,
     );
-    
+
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
     swarm.listen_on(multiaddr(Ipv4Addr::new(0, 0, 0, 0), config.port))?;
 
@@ -156,7 +159,7 @@ pub(crate) async fn start(
                                 conversions::PublicAddress::try_from(*src_peer_id)
                             {
                                 let public_addr: PublicAddress = public_addr.into();
-                                if swarm.behaviour().is_subscribed(&message) {
+                                if swarm.behaviour().is_subscribed(&message.topic) {
                                     let envelope = Envelope {
                                         origin: public_addr,
                                         message: message.data,
@@ -177,10 +180,31 @@ pub(crate) async fn start(
                         info.listen_addrs.iter().for_each(|a| {
                             swarm.behaviour_mut().add_address(&peer_id, a.clone());
                         });
+
+                        // subscribe to mailbox topic
+                        if let Ok(addr) = conversions::PublicAddress::try_from(peer_id) {
+                            let public_addr: PublicAddress = addr.into();
+                            let topic = Topic::Mailbox(public_addr);
+                            if !swarm.behaviour().is_subscribed(&topic.hash())
+                                && is_close_peer(&local_peer_id, &peer_id)
+                            {
+                                let _ = swarm.behaviour_mut().subscribe(vec![topic]);
+                            }
+                        }
                     }
+
                     SwarmEvent::ConnectionClosed { peer_id, .. } => {
                         log::debug!("ConnectionClosed {}", peer_id);
                         swarm.behaviour_mut().remove_peer(&peer_id);
+
+                        // unsubscribe from mailbox topic
+                        if let Ok(addr) = conversions::PublicAddress::try_from(peer_id) {
+                            let public_addr: PublicAddress = addr.into();
+                            let topic = Topic::Mailbox(public_addr);
+                            if swarm.behaviour().is_subscribed(&topic.hash()) {
+                                let _ = swarm.behaviour_mut().unsubscribe(vec![topic]);
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -214,6 +238,18 @@ async fn build_transport(
 /// Create Multiaddr from IP address and port number.
 fn multiaddr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
     format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
+}
+
+/// Check the distance between 2 peers. Subscribe to new peer's mailbox topic
+/// if the distance is below [constants::MAX_MAILBOX_DISTANCE]
+fn is_close_peer(peer_1: &PeerId, peer_2: &PeerId) -> bool {
+    let peer_1_key = KBucketKey::from(*peer_1);
+    let peer_2_key = KBucketKey::from(*peer_2);
+    // returns the distance in base2 logarithm ranging from 0 - 256
+    let distance = KBucketKey::distance(&peer_1_key, &peer_2_key)
+        .ilog2()
+        .unwrap_or(0);
+    distance < constants::MAX_MAILBOX_DISTANCE
 }
 
 #[cfg(test)]

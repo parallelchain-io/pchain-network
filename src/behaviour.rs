@@ -86,22 +86,10 @@ impl PeerBehaviour {
     }
 
     fn gossipsub_config(keypair: &Keypair, heartbeat_secs: u64) -> gossipsub::Behaviour {
-        let build_msg_id = |msg: &gossipsub::Message| {
-            let mut id_str = msg.topic.to_string();
-            let src_peer_id = match msg.source {
-                Some(src) => base64url::encode(src.to_bytes()),
-                None => "none".to_string(),
-            };
-            id_str.push_str(&src_peer_id);
-            id_str.push_str(&msg.sequence_number.unwrap_or_default().to_string());
-            MessageId::from(id_str)
-        };
-
         let gossip = gossipsub::Behaviour::new(
             MessageAuthenticity::Signed(keypair.clone()),
             ConfigBuilder::default()
                 .max_transmit_size(MAX_TRANSMIT_SIZE * MEGABYTES) // block size is limitted to 2 MB. Multiply by factor of safety = 2.
-                .message_id_fn(build_msg_id)
                 .heartbeat_interval(Duration::from_secs(heartbeat_secs))
                 .build()
                 .unwrap(),
@@ -135,7 +123,16 @@ impl PeerBehaviour {
         Ok(())
     }
 
-    /// Send [Message] to peer with the given address
+    /// Unsubscribe from [BroadcastTopic]
+    pub fn unsubscribe(&mut self, topics: Vec<Topic>) -> Result<(), Box<dyn std::error::Error>> {
+        for topic in topics {
+            self.gossip.unsubscribe(&topic.into())?;
+        }
+
+        Ok(())
+    }
+
+    /// Send [Message] to peers subscribed to given address
     pub fn send_to(
         &mut self,
         address: PublicAddress,
@@ -156,9 +153,9 @@ impl PeerBehaviour {
         self.gossip.publish(topic, content)
     }
 
-    /// Check if the [gossipsub::Message] is subscribed by this peer
-    pub fn is_subscribed(&self, message: &gossipsub::Message) -> bool {
-        self.gossip.topics().any(|topic| message.topic.eq(topic))
+    /// Check if the [gossipsub::TopicHash] is subscribed by this peer
+    pub fn is_subscribed(&self, topic_hash: &gossipsub::TopicHash) -> bool {
+        self.gossip.topics().any(|topic| topic_hash.eq(topic))
     }
 }
 
@@ -202,10 +199,7 @@ mod test {
     use super::PeerBehaviour;
     use crate::{Config, conversions, messages::{Topic, MessageTopicHash}};
 
-    use libp2p::{
-        gossipsub,
-        Multiaddr, PeerId,
-    };
+    use libp2p::{gossipsub, Multiaddr, PeerId};
     use pchain_types::cryptography::PublicAddress;
 
     struct PeerInfo {
@@ -267,42 +261,42 @@ mod test {
             .sum();
         assert_eq!(peer_num, 0);
     }
-    
+
     #[test]
     fn test_subscribe_topics() {
         let mut peer1 = create_new_peer();
-        
+
         let self_topic_hash = Topic::Mailbox(peer1.public_address).hash();
-        
+
         let self_topic_message = gossipsub::Message {
             source: None,
             data: vec![],
             sequence_number: None,
             topic: self_topic_hash,
         };
-        assert!(peer1.behaviour.is_subscribed(&self_topic_message));
-        
+        assert!(peer1.behaviour.is_subscribed(&self_topic_message.topic));
+
         // create new Message with Topic::Consensus and subscribe
-        let consensus_msg = gossipsub::Message {
+        let hotstuff_msg = gossipsub::Message {
             source: None,
             data: vec![],
             sequence_number: None,
-            topic: Topic::Consensus.hash(),
+            topic: Topic::HotstuffRS.hash(),
         };
-        let _ = peer1.behaviour.subscribe(vec![Topic::Consensus]);
-        
+        let _ = peer1.behaviour.subscribe(vec![Topic::HotstuffRS]);
+
         // create Message with unsubscribed topic
         let unsubscribed_msg = gossipsub::Message {
             source: None,
             data: vec![],
             sequence_number: None,
-            topic: Topic::DroppedTx.hash(),
+            topic: Topic::Mempool.hash(),
         };
-        
+
         let subscribed_topics: Vec<&MessageTopicHash> = peer1.behaviour.gossip.topics().collect();
         assert_eq!(subscribed_topics.len(), 2); //including the initial subscribed topic
-        
-        assert!(peer1.behaviour.is_subscribed(&consensus_msg));
-        assert!(!peer1.behaviour.is_subscribed(&unsubscribed_msg));
+
+        assert!(peer1.behaviour.is_subscribed(&hotstuff_msg.topic));
+        assert!(!peer1.behaviour.is_subscribed(&unsubscribed_msg.topic));
     }
 }
