@@ -23,7 +23,7 @@ pchain-types = "0.4.3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 libp2p-mplex = "0.40.0"
 rand = "0.8.5"
-ed25519-dalek = "1.0.1"
+ed25519-dalek = "2.0.0"
 
 [dev-dependencies]
 serial_test = "0.5"
