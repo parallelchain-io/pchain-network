@@ -16,7 +16,7 @@ async-trait = "0.1"
 base64url = "0.1.0"
 borsh = "0.10.2"
 futures = "0.3.21"
-hotstuff_rs = "0.2.2"
+hotstuff_rs = { version = "0.2", git = "https://github.com/parallelchain-io/hotstuff_rs" }
 libp2p = { version = "0.52.1", features = ["dns", "gossipsub", "identify", "ping", "tcp", "kad", "noise", "yamux", "macros", "tokio"]}
 log = "0.4"
 pchain-types = "0.4.3"
