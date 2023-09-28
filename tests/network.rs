@@ -11,10 +11,10 @@ use pchain_network::{
     messages::{Topic, Envelope, Message},
     NetworkHandle,
 };
-use pchain_types::{blockchain::Transaction, cryptography::PublicAddress};
+use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
-fn base_tx(signer: PublicAddress) -> Transaction {
-    Transaction {
+fn base_tx(signer: PublicAddress) -> TransactionV1 {
+    TransactionV1 {
         signer,
         nonce: 0,
         commands: vec![],

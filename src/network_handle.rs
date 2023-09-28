@@ -13,7 +13,7 @@ use crate::Config;
 use crate::engine;
 use crate::message_gate::MessageGateChain;
 use crate::messages::{DroppedTxMessage, Message, Topic};
-use pchain_types::{blockchain::Transaction, cryptography::PublicAddress};
+use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
 /// [NetworkHandle] provides inter-process messaging between application and the p2p
 /// network. It started the main thread for the p2p network and handles for the [tokio::task]
@@ -38,7 +38,7 @@ impl NetworkHandle {
         }
     }
 
-    pub fn broadcast_mempool_tx_msg(&self, content: &Transaction) {
+    pub fn broadcast_mempool_tx_msg(&self, content: &TransactionV1) {
         let _ = self.sender.try_send(SendCommand::Broadcast(
             Topic::Mempool,
             Message::Mempool(content.clone()),

@@ -16,7 +16,7 @@
 use borsh::BorshSerialize;
 use libp2p::gossipsub::IdentTopic;
 use pchain_types::{
-    blockchain::Transaction,
+    blockchain::TransactionV1,
     cryptography::{PublicAddress, Sha256Hash},
     serialization::Serializable,
 };
@@ -63,7 +63,7 @@ impl From<Topic> for IdentTopic {
 #[derive(Clone)]
 pub enum Message {
     Consensus(hotstuff_rs::messages::Message),
-    Mempool(Transaction),
+    Mempool(TransactionV1),
     DroppedTx(DroppedTxMessage),
 }
 
@@ -81,7 +81,7 @@ impl From<Message> for Vec<u8> {
 #[derive(Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub enum DroppedTxMessage {
     MempoolDroppedTx {
-        txn: Transaction,
+        txn: TransactionV1,
         status_code: DroppedTxStatusCode,
     },
     ExecutorDroppedTx {
