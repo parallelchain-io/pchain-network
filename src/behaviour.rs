@@ -8,7 +8,7 @@
 //! Library users use [configuration](crate::config) to configure `pchain_network`. In turn, `pchain_network`
 //! uses [behaviour](crate::behaviour) to configure libp2p.
 
-use crate::constants::{self, MAX_TRANSMIT_SIZE, MEGABYTES};
+use crate::constants::{MAX_TRANSMIT_SIZE, MEGABYTES};
 use crate::conversions;
 use crate::messages::{Message, Topic};
 use libp2p::{
@@ -41,16 +41,16 @@ pub(crate) struct PeerBehaviour {
 }
 
 impl PeerBehaviour {
-    pub fn new(id: PublicAddress, local_key: &Keypair, heartbeat_secs: u64) -> Self {
+    pub fn new(id: PublicAddress, local_key: &Keypair, heartbeat_secs: u64, protocol_name: &str) -> Self {
         let local_peer_id: PeerId = conversions::PublicAddress::new(id)
             .try_into()
             .expect("Invalid PublicAddress.");
 
         // Configure Kademlia
-        let kad = Self::kad_config(local_peer_id);
+        let kad = Self::kad_config(local_peer_id, protocol_name);
 
         // Configure Identify
-        let identify = Self::identify_config(local_key.public());
+        let identify = Self::identify_config(local_key.public(), protocol_name);
 
         // Configure Gossipsub - subscribe to the topic of its own the base64-encoded public address
         let mut gossip = Self::gossipsub_config(local_key, heartbeat_secs);
@@ -67,9 +67,10 @@ impl PeerBehaviour {
         }
     }
 
-    fn kad_config(peer_id: PeerId) -> Kademlia<MemoryStore> {
+    fn kad_config(peer_id: PeerId, protocol_name: &str) -> Kademlia<MemoryStore> {
+        let protocol_name = StreamProtocol::try_from_owned(protocol_name.to_string()).unwrap();
         let kad_config = KademliaConfig::default()
-            .set_protocol_names(vec![StreamProtocol::new(constants::PROTOCOL_NAME)])
+            .set_protocol_names(vec![protocol_name])
             .set_record_filtering(KademliaStoreInserts::FilterBoth)
             .to_owned();
 
@@ -80,8 +81,8 @@ impl PeerBehaviour {
         kad
     }
 
-    fn identify_config(public_key: PublicKey) -> identify::Behaviour {
-        let config = identify::Config::new(constants::PROTOCOL_NAME.to_string(), public_key);
+    fn identify_config(public_key: PublicKey, protocol_ver: &str) -> identify::Behaviour {
+        let config = identify::Config::new(protocol_ver.to_string(), public_key);
         identify::Behaviour::new(config)
     }
 
@@ -200,7 +201,7 @@ mod test {
     use std::net::Ipv4Addr;
 
     use super::PeerBehaviour;
-    use crate::{Config, conversions, messages::{Topic, MessageTopicHash}};
+    use crate::{Config, conversions, messages::{Topic, MessageTopicHash}, constants};
 
     use libp2p::{
         gossipsub,
@@ -230,6 +231,7 @@ mod test {
             peer_public_address,
             &peer_config.keypair,
             peer_config.peer_discovery_interval,
+            &constants::PROTOCOL_NAME,
         );
 
         PeerInfo {

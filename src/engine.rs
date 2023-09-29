@@ -72,6 +72,7 @@ pub(crate) async fn start(
         local_public_address,
         &local_keypair,
         constants::HEARTBEAT_SECS,
+        &config.protocol_name,
     );
     
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();

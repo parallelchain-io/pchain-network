@@ -17,7 +17,7 @@ use std::net::Ipv4Addr;
 
 use crate::constants::{
     BRAODCAST_MSG_BUFFER_SIZE, PEER_DISCOVERY_INTERVAL, PORT_NUMBER, PRIVATE_MSG_BUFFER_SIZE,
-    SEND_COMMAND_BUFFER_SIZE,
+    SEND_COMMAND_BUFFER_SIZE, PROTOCOL_NAME
 };
 use crate::conversions;
 use libp2p::identity::{ed25519, Keypair};
@@ -34,6 +34,7 @@ use pchain_types::cryptography::PublicAddress;
 /// - Buffer size of message: 10
 /// - Buffer size of broadcast messages: 10
 /// - Interval for peer discover: 10 secs
+/// - Protocol name: "/pchain_p2p/1.0.0"
 #[derive(Clone)]
 pub struct Config {
     /// keypair used for identification of this network node
@@ -56,6 +57,9 @@ pub struct Config {
 
     /// interval in seconds for querying networking to discover peers
     pub peer_discovery_interval: u64,
+
+    /// Protocol name to communicate with other Kademlia nodes
+    pub protocol_name: String,
 }
 
 /// Create default configuration with an automatically generated keypair.
@@ -69,6 +73,7 @@ impl Default for Config {
             private_msg_buffer_size: PRIVATE_MSG_BUFFER_SIZE,
             broadcast_msg_buffer_size: BRAODCAST_MSG_BUFFER_SIZE,
             peer_discovery_interval: PEER_DISCOVERY_INTERVAL, // secs
+            protocol_name: PROTOCOL_NAME.to_string(),
         }
     }
 }
@@ -117,6 +122,12 @@ impl Config {
     /// Set the bootstrap nodes for initial connection.
     pub fn set_boot_nodes(mut self, boot_nodes: Vec<Peer>) -> Self {
         self.boot_nodes = boot_nodes;
+        self
+    }
+
+    /// Set the protocol name for Kademlia communication
+    pub fn set_protocol_name(mut self, protocol_name: String) -> Self {
+        self.protocol_name = protocol_name;
         self
     }
 }
@@ -293,5 +304,16 @@ mod tests {
         assert_eq!(&peer_info.ip_address.to_string(), "127.0.0.1");
         assert_eq!(peer_info.peer_id, test_keypair.public().to_peer_id());
         assert_eq!(peer_info.port, 1);
+    }
+
+    #[test]
+    fn test_new_protocol_name() {
+        let new_protocol_name = "/parallelchain_mainnet/v0.5".to_string();
+        let test_config =
+            Config::default().set_protocol_name(new_protocol_name.clone());
+        assert_eq!(
+            test_config.protocol_name,
+            new_protocol_name
+        );
     }
 }
