@@ -8,7 +8,7 @@
 //!
 //! In the event loop, it waits for:
 //! - [PeerNetworkEvent].
-//! - [Commands](SendCommand) from application for sending message.
+//! - [Commands](EngineCommand) from application for sending message.
 //! - Timeout of a periodic interval to discover peers in the network.
 //!
 //! ### Events Handling
@@ -44,7 +44,7 @@ use crate::{
     constants, conversions,
     message_gate::MessageGateChain,
     messages::{Envelope, Topic},
-    network_handle::SendCommand,
+    network_handle::EngineCommand,
     Peer,
 };
 
@@ -93,18 +93,18 @@ pub(crate) async fn start(
 
     // 4. Start p2p networking
     let (sender, mut receiver) =
-        tokio::sync::mpsc::channel::<SendCommand>(config.send_command_buffer_size);
+        tokio::sync::mpsc::channel::<EngineCommand>(config.send_command_buffer_size);
     let mut discover_tick =
         tokio::time::interval(Duration::from_secs(config.peer_discovery_interval));
 
     let network_thread_handle = tokio::task::spawn(async move {
         loop {
             // 4.1 Wait for the following events:
-            let (send_command, event) = tokio::select! {
+            let (engine_command, event) = tokio::select! {
                 biased;
-                // Receive a SendCommand from application
-                send_command = receiver.recv() => {
-                    (send_command, None)
+                // Receive a (EngineCommand) from application
+                engine_command = receiver.recv() => {
+                    (engine_command, None)
                 },
                 // Receive a PeerNetworkEvent
                 event = swarm.select_next_some() => {
@@ -118,10 +118,10 @@ pub(crate) async fn start(
                 },
             };
 
-            // 4.2 Deliver messages when a SendCommand from application is received
-            if let Some(send_command) = send_command {
-                match send_command {
-                    SendCommand::SendTo(recipient, raw_message) => {
+            // 4.2 Deliver messages when a EngineCommand from application is received
+            if let Some(engine_command) = engine_command {
+                match engine_command {
+                    EngineCommand::SendTo(recipient, raw_message) => {
                         log::info!("SendTo: {}", base64url::encode(recipient).as_str());
                         if recipient == local_public_address {
                             // send to myself
@@ -137,7 +137,7 @@ pub(crate) async fn start(
                             log::error!("{:?}", e);
                         }
                     }
-                    SendCommand::Broadcast(topic, msg) => {
+                    EngineCommand::Broadcast(topic, msg) => {
                         log::info!("Broadcast (Topic: {:?})", topic);
                         if let Err(e) = swarm.behaviour_mut().broadcast(topic.into(), msg) {
                             log::debug!("{:?}", e);

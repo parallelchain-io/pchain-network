@@ -24,7 +24,7 @@ pub struct Peer {
     /// the p2p network (see[crate::engine])
     pub(crate) engine: JoinHandle<()>,
     /// mpsc sender for delivering message to p2p network
-    pub(crate) to_engine: tokio::sync::mpsc::Sender<SendCommand>,
+    pub(crate) to_engine: tokio::sync::mpsc::Sender<EngineCommand>,
 }
 
 impl Peer {
@@ -40,21 +40,21 @@ impl Peer {
     }
 
     pub fn broadcast_mempool_tx_msg(&self, content: &TransactionV1) {
-        let _ = self.to_engine.try_send(SendCommand::Broadcast(
+        let _ = self.to_engine.try_send(EngineCommand::Broadcast(
             Topic::Mempool,
             Message::Mempool(content.clone()),
         ));
     }
 
     pub fn broadcast_dropped_tx_msg(&self, content: DroppedTxMessage) {
-        let _ = self.to_engine.try_send(SendCommand::Broadcast(
+        let _ = self.to_engine.try_send(EngineCommand::Broadcast(
             Topic::DroppedTx,
             Message::DroppedTx(content),
         ));
     }
 
     pub fn broadcast_consensus_msg(&self, content: hotstuff_rs::messages::Message) {
-        let _ = self.to_engine.try_send(SendCommand::Broadcast(
+        let _ = self.to_engine.try_send(EngineCommand::Broadcast(
             Topic::Consensus,
             Message::Consensus(content),
         ));
@@ -63,13 +63,13 @@ impl Peer {
     pub fn send_to(&self, address: PublicAddress, content: hotstuff_rs::messages::Message) {
         let _ = self
             .to_engine
-            .try_send(SendCommand::SendTo(address, Message::Consensus(content)));
+            .try_send(EngineCommand::SendTo(address, Message::Consensus(content)));
     }
 }
 
-/// A command to send a message either to a specific peer ([SendTo](SendCommand::SendTo)), or to all subscribers
-/// of a network topic ([Broadcast](SendTo::Broadcast)).
-pub enum SendCommand {
+/// A command to send a message either to a specific peer ([SendTo](EngineCommand::SendTo)), or to all subscribers
+/// of a network topic ([Broadcast](EngineCommand::Broadcast)).
+pub enum EngineCommand {
     /// send to a specific peer
     SendTo(PublicAddress, Message),
 
