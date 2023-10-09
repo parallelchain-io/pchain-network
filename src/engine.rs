@@ -97,7 +97,7 @@ pub(crate) async fn start(
     let mut discover_tick =
         tokio::time::interval(Duration::from_secs(config.peer_discovery_interval));
 
-    let _network_thread_handle = tokio::task::spawn(async move {
+    let network_thread_handle = tokio::task::spawn(async move {
         loop {
             // 4.1 Wait for the following events:
             let (send_command, event) = tokio::select! {
@@ -189,7 +189,10 @@ pub(crate) async fn start(
         }
     });
 
-    Ok(Peer {sender})
+    Ok(Peer {
+        engine: network_thread_handle,
+        to_engine: sender
+    })
 }
 
 async fn build_transport(

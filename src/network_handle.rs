@@ -14,14 +14,17 @@ use crate::engine;
 use crate::message_gate::MessageGateChain;
 use crate::messages::{DroppedTxMessage, Message, Topic};
 use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
+use tokio::task::JoinHandle;
 
 /// [Peer] provides inter-process messaging between application and the p2p
 /// network. It started the main thread for the p2p network and handles for the [tokio::task]
 /// by calling [crate::engine::start].
-#[derive(Clone)]
 pub struct Peer {
+    /// Engine handle for the [tokio::task] which is the main thread for
+    /// the p2p network (see[crate::engine])
+    pub(crate) engine: JoinHandle<()>,
     /// mpsc sender for delivering message to p2p network
-    pub(crate) sender: tokio::sync::mpsc::Sender<SendCommand>,
+    pub(crate) to_engine: tokio::sync::mpsc::Sender<SendCommand>,
 }
 
 impl Peer {
@@ -30,30 +33,28 @@ impl Peer {
         subscribe_topics: Vec<Topic>,
         message_gates: MessageGateChain,
     ) -> Self {
-        let handle = engine::start(config, subscribe_topics, message_gates)
+        return engine::start(config, subscribe_topics, message_gates)
             .await
             .unwrap();
-        Self {
-            sender: handle.sender,
-        }
+
     }
 
     pub fn broadcast_mempool_tx_msg(&self, content: &TransactionV1) {
-        let _ = self.sender.try_send(SendCommand::Broadcast(
+        let _ = self.to_engine.try_send(SendCommand::Broadcast(
             Topic::Mempool,
             Message::Mempool(content.clone()),
         ));
     }
 
     pub fn broadcast_dropped_tx_msg(&self, content: DroppedTxMessage) {
-        let _ = self.sender.try_send(SendCommand::Broadcast(
+        let _ = self.to_engine.try_send(SendCommand::Broadcast(
             Topic::DroppedTx,
             Message::DroppedTx(content),
         ));
     }
 
     pub fn broadcast_consensus_msg(&self, content: hotstuff_rs::messages::Message) {
-        let _ = self.sender.try_send(SendCommand::Broadcast(
+        let _ = self.to_engine.try_send(SendCommand::Broadcast(
             Topic::Consensus,
             Message::Consensus(content),
         ));
@@ -61,7 +62,7 @@ impl Peer {
 
     pub fn send_to(&self, address: PublicAddress, content: hotstuff_rs::messages::Message) {
         let _ = self
-            .sender
+            .to_engine
             .try_send(SendCommand::SendTo(address, Message::Consensus(content)));
     }
 }
