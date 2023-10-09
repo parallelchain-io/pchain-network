@@ -6,8 +6,8 @@
 //! This is the entry point to the pchain_network library. It starts a ParallelChain Network peer
 //! and keeps the peer alive -- the peer stops working when the thread is dropped.
 //!
-//! To send a message in the P2P network, call `.broadcast_mempool_tx_msg()`, `broadcast_dropped_tx_msg`,
-//! `broadcast_consensus_msg` or `.send_to()` directly.
+//! To send a message in the P2P network, call `.broadcast_mempool_msg()`, `broadcast_dropped_txn_msg`,
+//! `broadcast_hotstuff_rs_msg` or `.send_hotstuff_rs_msg()` directly.
 
 use crate::Config;
 use crate::engine;

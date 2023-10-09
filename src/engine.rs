@@ -132,7 +132,7 @@ pub(crate) async fn start(
                             message_gates
                                 .message_in(&Topic::HotStuffRsSend(local_public_address).hash(), envelope)
                                 .await;
-                        } else if let Err(e) = swarm.behaviour_mut().broadcast(topic.into(), message) {
+                        } else if let Err(e) = swarm.behaviour_mut().publish(topic.into(), message) {
                             log::debug!("{:?}", e);
                         }
                     }

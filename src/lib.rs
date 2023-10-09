@@ -23,10 +23,10 @@
 //! // ...
 //!
 //! // 3. Start P2P network.
-//! let network = pchain_network::NetworkHandle::start(network_config, subscribe_topics, message_gate_chain).await;
+//! let network = pchain_network::Peer::start(network_config, subscribe_topics, message_gate_chain).await;
 //!
 //! // 4. Send out messages.
-//! network.broadcast_mempool_tx_msg(txn);
+//! network.broadcast_mempool_msg(txn);
 
 pub mod config;
 pub use config::Config;

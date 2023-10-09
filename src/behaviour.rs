@@ -136,19 +136,8 @@ impl PeerBehaviour {
         Ok(())
     }
 
-    /// Send [Message] to peer with the given address
-    pub fn send_to(
-        &mut self,
-        address: PublicAddress,
-        msg: Message,
-    ) -> Result<MessageId, PublishError> {
-        let topic = Topic::HotStuffRsSend(address).hash();
-        let content: Vec<u8> = msg.into();
-        self.gossip.publish(topic, content)
-    }
-
-    /// Broadcast [Message] with a specific topic
-    pub fn broadcast(
+    /// Publish [Message] to peers subscribed to the specific [Topic]
+    pub fn publish(
         &mut self,
         topic: IdentTopic,
         msg: Message,
