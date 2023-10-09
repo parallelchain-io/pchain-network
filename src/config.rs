@@ -44,7 +44,7 @@ pub struct Config {
     pub port: u16,
 
     /// bootstrap nodes for initial connection
-    pub boot_nodes: Vec<Peer>,
+    pub boot_nodes: Vec<PeerInfo>,
 
     /// buffer size of commands initiated from caller
     pub send_command_buffer_size: usize,
@@ -120,7 +120,7 @@ impl Config {
     }
 
     /// Set the bootstrap nodes for initial connection.
-    pub fn set_boot_nodes(mut self, boot_nodes: Vec<Peer>) -> Self {
+    pub fn set_boot_nodes(mut self, boot_nodes: Vec<PeerInfo>) -> Self {
         self.boot_nodes = boot_nodes;
         self
     }
@@ -132,10 +132,10 @@ impl Config {
     }
 }
 
-/// [Peer] consists of required information to identify an entity in the network, such as
+/// [PeerInfo] consists of required information to identify an entity in the network, such as
 /// PeerId, IPv4 Address and port number.
 #[derive(Clone)]
-pub struct Peer {
+pub struct PeerInfo {
     /// Peer ID in the P2P network
     pub peer_id: PeerId,
 
@@ -146,8 +146,8 @@ pub struct Peer {
     pub port: u16,
 }
 
-impl Peer {
-    /// Instantiation of [Peer]. It is used in bootstrap nodes in [crate::configuration::Config].
+impl PeerInfo {
+    /// Instantiation of [PeerInfo]. It is used in bootstrap nodes in [crate::configuration::Config].
     ///
     /// ## Panics
     /// Panics if address is not a valid Ed25519 public key.
@@ -270,7 +270,7 @@ mod tests {
         let boot_node_ip_address = Ipv4Addr::new(127, 0, 0, 1);
         let boot_node_port: u16 = 1;
 
-        let boot_node = Peer::new(
+        let boot_node = PeerInfo::new(
             boot_node_public_address,
             boot_node_ip_address,
             boot_node_port,
@@ -298,7 +298,7 @@ mod tests {
         let port: u16 = 1;
 
         //create new instance of Peer Info
-        let peer_info = Peer::new(test_public_address, ip_address, port);
+        let peer_info = PeerInfo::new(test_public_address, ip_address, port);
 
         //test new instance of Peer Info
         assert_eq!(&peer_info.ip_address.to_string(), "127.0.0.1");

@@ -6,7 +6,7 @@ use futures::lock::Mutex;
 use hotstuff_rs::messages::SyncRequest;
 use libp2p::{identity::{Keypair, PublicKey}, gossipsub::TopicHash};
 use pchain_network::{
-    config::{Config, Peer},
+    config::{Config, PeerInfo},
     message_gate::{MessageGate, MessageGateChain},
     messages::{Topic, Envelope, Message},
     NetworkHandle,
@@ -42,7 +42,7 @@ async fn test_broadcast() {
     let (address_1, node_1, _) = node(30001, vec![], None, vec![]).await;
     let (_address_2, _node_2, receiver_gate) = node(
         30002,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30001)],
+        vec![PeerInfo::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30001)],
         Some(Topic::Mempool),
         vec![Topic::Mempool],
     )
@@ -82,7 +82,7 @@ async fn test_send_to() {
 
     let (address_2, _node_2, receiver_gate) = node(
         30004,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30003)],
+        vec![PeerInfo::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30003)],
         None,
         vec![],
     )
@@ -124,7 +124,7 @@ async fn test_send_to_only_specific_receiver() {
 
     let (address_2, _node_2, _) = node(
         30006,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005)],
+        vec![PeerInfo::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005)],
         None,
         vec![],
     )
@@ -132,7 +132,7 @@ async fn test_send_to_only_specific_receiver() {
 
     let (_address_3, _node_3, receiver_gate) = node(
         30007,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005)],
+        vec![PeerInfo::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005)],
         None,
         vec![],
     )
@@ -171,7 +171,7 @@ async fn test_sparse_messaging() {
 
     let (address_2, _node_2, _) = node(
         30009,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30008)],
+        vec![PeerInfo::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30008)],
         None,
         vec![],
     )
@@ -179,7 +179,7 @@ async fn test_sparse_messaging() {
 
     let (address_3, node_3, receiver_gate_3) = node(
         30010,
-        vec![Peer::new(address_2, Ipv4Addr::new(127, 0, 0, 1), 30009)],
+        vec![PeerInfo::new(address_2, Ipv4Addr::new(127, 0, 0, 1), 30009)],
         None,
         vec![],
     )
@@ -259,7 +259,7 @@ async fn test_broadcast_different_topics() {
 
     let (_address_2, _node_2, receiver_gate) = node(
         30015,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30014)],
+        vec![PeerInfo::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30014)],
         Some(Topic::Mempool),
         vec![Topic::Consensus],
     )
@@ -287,7 +287,7 @@ async fn test_broadcast_different_topics() {
 
 pub async fn node(
     port: u16,
-    boot_nodes: Vec<Peer>,
+    boot_nodes: Vec<PeerInfo>,
     gate_topic: Option<Topic>,
     subscribe_topics: Vec<Topic>,
 ) -> (PublicAddress, NetworkHandle, MessageCounts) {
