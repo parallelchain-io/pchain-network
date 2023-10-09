@@ -15,16 +15,16 @@ use crate::message_gate::MessageGateChain;
 use crate::messages::{DroppedTxMessage, Message, Topic};
 use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
-/// [NetworkHandle] provides inter-process messaging between application and the p2p
+/// [Peer] provides inter-process messaging between application and the p2p
 /// network. It started the main thread for the p2p network and handles for the [tokio::task]
 /// by calling [crate::engine::start].
 #[derive(Clone)]
-pub struct NetworkHandle {
+pub struct Peer {
     /// mpsc sender for delivering message to p2p network
     pub(crate) sender: tokio::sync::mpsc::Sender<SendCommand>,
 }
 
-impl NetworkHandle {
+impl Peer {
     pub async fn start(
         config: Config,
         subscribe_topics: Vec<Topic>,

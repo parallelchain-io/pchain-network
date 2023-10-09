@@ -38,7 +38,7 @@ pub mod messages;
 pub mod message_gate;
 
 pub mod network_handle;
-pub use network_handle::NetworkHandle;
+pub use network_handle::Peer;
 
 pub(crate) mod behaviour;
 

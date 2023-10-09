@@ -45,7 +45,7 @@ use crate::{
     message_gate::MessageGateChain,
     messages::{Envelope, Topic},
     network_handle::SendCommand,
-    NetworkHandle,
+    Peer,
 };
 
 /// [start] p2p networking peer and return the handle [NetworkHandle] of this process.
@@ -53,7 +53,7 @@ pub(crate) async fn start(
     config: Config,
     subscribe_topics: Vec<Topic>,
     message_gates: MessageGateChain,
-) -> Result<NetworkHandle, Box<dyn Error>> {
+) -> Result<Peer, Box<dyn Error>> {
     let local_public_address: PublicAddress =
         conversions::PublicAddress::try_from(config.keypair.public())
             .expect("Invalid PublicKey from configuration")
@@ -189,7 +189,7 @@ pub(crate) async fn start(
         }
     });
 
-    Ok(NetworkHandle {sender})
+    Ok(Peer {sender})
 }
 
 async fn build_transport(

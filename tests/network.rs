@@ -9,7 +9,7 @@ use pchain_network::{
     config::{Config, PeerInfo},
     message_gate::{MessageGate, MessageGateChain},
     messages::{Topic, Envelope, Message},
-    NetworkHandle,
+    Peer,
 };
 use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
@@ -290,7 +290,7 @@ pub async fn node(
     boot_nodes: Vec<PeerInfo>,
     gate_topic: Option<Topic>,
     subscribe_topics: Vec<Topic>,
-) -> (PublicAddress, NetworkHandle, MessageCounts) {
+) -> (PublicAddress, Peer, MessageCounts) {
     let keypair: Keypair = Keypair::generate_ed25519();
     let address = public_address(&keypair.public());
     let config = Config::with_keypair(
@@ -311,7 +311,7 @@ pub async fn node(
     };
     let message_chain = MessageGateChain::new().append(gate.clone());
 
-    let node = pchain_network::NetworkHandle::start(config, subscribe_topics, message_chain)
+    let node = pchain_network::Peer::start(config, subscribe_topics, message_chain)
         .await;
 
     (address, node, gate)
