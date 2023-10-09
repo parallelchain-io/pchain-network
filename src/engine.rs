@@ -121,27 +121,25 @@ pub(crate) async fn start(
             // 4.2 Deliver messages when a EngineCommand from application is received
             if let Some(engine_command) = engine_command {
                 match engine_command {
-                    EngineCommand::SendTo(recipient, raw_message) => {
-                        log::info!("SendTo: {}", base64url::encode(recipient).as_str());
-                        if recipient == local_public_address {
+                    EngineCommand::Publish(topic, message) => {
+                        log::info!("Publish (Topic: {:?})", topic);
+                        if topic == Topic::Mailbox(local_public_address) {
                             // send to myself
                             let envelope = Envelope {
                                 origin: local_public_address,
-                                message: raw_message.into(),
+                                message: message.into(),
                             };
                             message_gates
                                 .message_in(&Topic::Mailbox(local_public_address).hash(), envelope)
                                 .await;
-                        } else if let Err(e) = swarm.behaviour_mut().send_to(recipient, raw_message)
-                        {
-                            log::error!("{:?}", e);
-                        }
-                    }
-                    EngineCommand::Broadcast(topic, msg) => {
-                        log::info!("Broadcast (Topic: {:?})", topic);
-                        if let Err(e) = swarm.behaviour_mut().broadcast(topic.into(), msg) {
+                        } else if let Err(e) = swarm.behaviour_mut().broadcast(topic.into(), message) {
                             log::debug!("{:?}", e);
                         }
+                    }
+
+                    EngineCommand::Shutdown => {
+                        log::info!("Exiting out of Engine thread");
+                        break
                     }
                 }
             }

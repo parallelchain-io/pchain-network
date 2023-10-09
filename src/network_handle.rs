@@ -40,39 +40,40 @@ impl Peer {
     }
 
     pub fn broadcast_mempool_tx_msg(&self, content: &TransactionV1) {
-        let _ = self.to_engine.try_send(EngineCommand::Broadcast(
+        let _ = self.to_engine.try_send(EngineCommand::Publish(
             Topic::Mempool,
             Message::Mempool(content.clone()),
         ));
     }
 
     pub fn broadcast_dropped_tx_msg(&self, content: DroppedTxMessage) {
-        let _ = self.to_engine.try_send(EngineCommand::Broadcast(
+        let _ = self.to_engine.try_send(EngineCommand::Publish(
             Topic::DroppedTx,
             Message::DroppedTx(content),
         ));
     }
 
     pub fn broadcast_consensus_msg(&self, content: hotstuff_rs::messages::Message) {
-        let _ = self.to_engine.try_send(EngineCommand::Broadcast(
+        let _ = self.to_engine.try_send(EngineCommand::Publish(
             Topic::Consensus,
             Message::Consensus(content),
         ));
     }
 
     pub fn send_to(&self, address: PublicAddress, content: hotstuff_rs::messages::Message) {
-        let _ = self
-            .to_engine
-            .try_send(EngineCommand::SendTo(address, Message::Consensus(content)));
+        let _ = self.to_engine.try_send(EngineCommand::Publish(
+            Topic::Mailbox(address),
+            Message::Consensus(content)
+        ));
     }
 }
 
-/// A command to send a message either to a specific peer ([SendTo](EngineCommand::SendTo)), or to all subscribers
-/// of a network topic ([Broadcast](EngineCommand::Broadcast)).
+/// A command to send messages to all peers subscribed to the topic ([Publish](EngineCommand::Publish))
+/// Or a command to gracefully shutdown the engine thread ([Shutdown](EngineCommand::Shutdown)).
 pub enum EngineCommand {
-    /// send to a specific peer
-    SendTo(PublicAddress, Message),
+    /// Publish to all peers with subscribed topic
+    Publish(Topic, Message),
 
-    /// broadcast to all peers
-    Broadcast(Topic, Message),
+    /// Shuts down the Engine thread
+    Shutdown, 
 }

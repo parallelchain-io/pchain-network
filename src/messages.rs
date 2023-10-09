@@ -25,7 +25,7 @@ use pchain_types::{
 pub type MessageTopicHash = libp2p::gossipsub::TopicHash;
 
 /// [Topic] defines the topics available for subscribing.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Topic {
     Consensus,
     Mempool,
