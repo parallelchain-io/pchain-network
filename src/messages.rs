@@ -27,10 +27,11 @@ pub type MessageTopicHash = libp2p::gossipsub::TopicHash;
 /// [Topic] defines the topics available for subscribing.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Topic {
-    Consensus,
+    HotStuffRsBroadcast,
+    HotStuffRsSend(PublicAddress),
     Mempool,
-    DroppedTx,
-    Mailbox(PublicAddress),
+    DroppedTxns,
+    
 }
 
 impl Topic {
@@ -39,7 +40,7 @@ impl Topic {
     }
 
     pub fn is_mailbox(topic_hash: &MessageTopicHash, node_address: PublicAddress) -> bool {
-        topic_hash == &Topic::Mailbox(node_address).hash()
+        topic_hash == &Topic::HotStuffRsSend(node_address).hash()
     }
 
     pub fn hash(self) -> MessageTopicHash {
@@ -50,10 +51,10 @@ impl Topic {
 impl From<Topic> for IdentTopic {
     fn from(topic: Topic) -> Self {
         let str = match topic {
-            Topic::Consensus => "consensus".to_string(),
+            Topic::HotStuffRsBroadcast => "consensus".to_string(),
+            Topic::HotStuffRsSend(addr) => base64url::encode(addr),
             Topic::Mempool => "mempool".to_string(),
-            Topic::DroppedTx => "droppedTx".to_string(),
-            Topic::Mailbox(addr) => base64url::encode(addr),
+            Topic::DroppedTxns => "droppedTx".to_string(),
         };
         IdentTopic::new(str)
     }
@@ -153,20 +154,20 @@ mod test {
         assert_eq!(mempool_topic.hash(), ident_topic.hash());
 
         // Consensus topic
-        let consensus_topic = Topic::Consensus;
+        let consensus_topic = Topic::HotStuffRsBroadcast;
 
         let ident_topic = IdentTopic::new("consensus".to_string());
         assert_eq!(consensus_topic.hash(), ident_topic.hash());
 
         // Dropped Tx Topic
-        let droppedtx_topic = Topic::DroppedTx;
+        let droppedtx_topic = Topic::DroppedTxns;
 
         let ident_topic = IdentTopic::new("droppedTx".to_string());
         assert_eq!(droppedtx_topic.hash(), ident_topic.hash());
 
         // Mailbox Topic
         let addr = [1u8;32];
-        let mailbox_topic = Topic::Mailbox(addr);
+        let mailbox_topic = Topic::HotStuffRsSend(addr);
 
         let ident_topic = IdentTopic::new(base64url::encode(addr));
         assert_eq!(mailbox_topic.hash(), ident_topic.hash())
@@ -179,7 +180,7 @@ mod test {
             conversions::PublicAddress::try_from(Keypair::generate_ed25519().public())
                 .unwrap()
                 .into();
-        let test_topic = Topic::Mailbox(test_public_address);
+        let test_topic = Topic::HotStuffRsSend(test_public_address);
 
         let expected_topic = IdentTopic::new(String::from(base64url::encode(test_public_address)));
         assert_eq!(test_topic.hash(), expected_topic.hash());
@@ -195,15 +196,15 @@ mod test {
         assert!(Topic::Mempool.is(&mempool_msg_hash));
         assert!(!Topic::is_mailbox(&mempool_msg_hash, test_public_address));
 
-        let consensus_msg_hash = Topic::Consensus.hash();
-        assert!(Topic::Consensus.is(&consensus_msg_hash));
+        let consensus_msg_hash = Topic::HotStuffRsBroadcast.hash();
+        assert!(Topic::HotStuffRsBroadcast.is(&consensus_msg_hash));
         assert!(!Topic::is_mailbox(&consensus_msg_hash, test_public_address));
 
-        let droppedtx_msg_hash = Topic::DroppedTx.hash();
-        assert!(Topic::DroppedTx.is(&droppedtx_msg_hash));
+        let droppedtx_msg_hash = Topic::DroppedTxns.hash();
+        assert!(Topic::DroppedTxns.is(&droppedtx_msg_hash));
         assert!(!Topic::is_mailbox(&droppedtx_msg_hash, test_public_address));
 
-        let mailbox_topic_hash = Topic::Mailbox(test_public_address).hash();
+        let mailbox_topic_hash = Topic::HotStuffRsSend(test_public_address).hash();
         assert!(Topic::is_mailbox(&mailbox_topic_hash, test_public_address));
     }
 }

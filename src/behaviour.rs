@@ -54,7 +54,7 @@ impl PeerBehaviour {
 
         // Configure Gossipsub - subscribe to the topic of its own the base64-encoded public address
         let mut gossip = Self::gossipsub_config(local_key, heartbeat_secs);
-        gossip.subscribe(&Topic::Mailbox(id).into()).unwrap();
+        gossip.subscribe(&Topic::HotStuffRsSend(id).into()).unwrap();
 
         // Configure Ping
         let ping = ping::Behaviour::default();
@@ -142,7 +142,7 @@ impl PeerBehaviour {
         address: PublicAddress,
         msg: Message,
     ) -> Result<MessageId, PublishError> {
-        let topic = Topic::Mailbox(address).hash();
+        let topic = Topic::HotStuffRsSend(address).hash();
         let content: Vec<u8> = msg.into();
         self.gossip.publish(topic, content)
     }
@@ -274,7 +274,7 @@ mod test {
     fn test_subscribe_topics() {
         let mut peer1 = create_new_peer();
         
-        let self_topic_hash = Topic::Mailbox(peer1.public_address).hash();
+        let self_topic_hash = Topic::HotStuffRsSend(peer1.public_address).hash();
         
         let self_topic_message = gossipsub::Message {
             source: None,
@@ -289,16 +289,16 @@ mod test {
             source: None,
             data: vec![],
             sequence_number: None,
-            topic: Topic::Consensus.hash(),
+            topic: Topic::HotStuffRsBroadcast.hash(),
         };
-        let _ = peer1.behaviour.subscribe(vec![Topic::Consensus]);
+        let _ = peer1.behaviour.subscribe(vec![Topic::HotStuffRsBroadcast]);
         
         // create Message with unsubscribed topic
         let unsubscribed_msg = gossipsub::Message {
             source: None,
             data: vec![],
             sequence_number: None,
-            topic: Topic::DroppedTx.hash(),
+            topic: Topic::DroppedTxns.hash(),
         };
         
         let subscribed_topics: Vec<&MessageTopicHash> = peer1.behaviour.gossip.topics().collect();

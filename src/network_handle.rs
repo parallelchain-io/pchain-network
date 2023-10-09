@@ -39,30 +39,30 @@ impl Peer {
 
     }
 
-    pub fn broadcast_mempool_tx_msg(&self, content: &TransactionV1) {
+    pub fn broadcast_mempool_msg(&self, content: &TransactionV1) {
         let _ = self.to_engine.try_send(EngineCommand::Publish(
             Topic::Mempool,
             Message::Mempool(content.clone()),
         ));
     }
 
-    pub fn broadcast_dropped_tx_msg(&self, content: DroppedTxMessage) {
+    pub fn broadcast_dropped_txn_msg(&self, content: DroppedTxMessage) {
         let _ = self.to_engine.try_send(EngineCommand::Publish(
-            Topic::DroppedTx,
+            Topic::DroppedTxns,
             Message::DroppedTx(content),
         ));
     }
 
-    pub fn broadcast_consensus_msg(&self, content: hotstuff_rs::messages::Message) {
+    pub fn broadcast_hotstuff_rs_msg(&self, content: hotstuff_rs::messages::Message) {
         let _ = self.to_engine.try_send(EngineCommand::Publish(
-            Topic::Consensus,
+            Topic::HotStuffRsBroadcast,
             Message::Consensus(content),
         ));
     }
 
-    pub fn send_to(&self, address: PublicAddress, content: hotstuff_rs::messages::Message) {
+    pub fn send_hotstuff_rs_msg(&self, address: PublicAddress, content: hotstuff_rs::messages::Message) {
         let _ = self.to_engine.try_send(EngineCommand::Publish(
-            Topic::Mailbox(address),
+            Topic::HotStuffRsSend(address),
             Message::Consensus(content)
         ));
     }

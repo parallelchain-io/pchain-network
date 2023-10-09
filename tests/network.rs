@@ -57,7 +57,7 @@ async fn test_broadcast() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.broadcast_mempool_tx_msg(&base_tx(address_1));
+                node_1.broadcast_mempool_msg(&base_tx(address_1));
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
@@ -97,7 +97,7 @@ async fn test_send_to() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_to(address_2, message.clone());
+                node_1.send_hotstuff_rs_msg(address_2, message.clone());
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
@@ -145,7 +145,7 @@ async fn test_send_to_only_specific_receiver() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_to(address_2, create_sync_req(1));
+                node_1.send_hotstuff_rs_msg(address_2, create_sync_req(1));
 
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
@@ -195,8 +195,8 @@ async fn test_sparse_messaging() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_to(address_3, message_to_node3.clone());
-                node_3.send_to(address_1, message_to_node1.clone());
+                node_1.send_hotstuff_rs_msg(address_3, message_to_node3.clone());
+                node_3.send_hotstuff_rs_msg(address_1, message_to_node1.clone());
 
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
@@ -233,7 +233,7 @@ async fn test_send_to_self() {
         tokio::select! {
             //broadcast does not send to self
             _ = sending_tick.tick() => {
-                node_1.send_to(address_1, message.clone());
+                node_1.send_hotstuff_rs_msg(address_1, message.clone());
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
@@ -261,7 +261,7 @@ async fn test_broadcast_different_topics() {
         30015,
         vec![PeerInfo::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30014)],
         Some(Topic::Mempool),
-        vec![Topic::Consensus],
+        vec![Topic::HotStuffRsBroadcast],
     )
     .await;
 
@@ -272,7 +272,7 @@ async fn test_broadcast_different_topics() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.broadcast_mempool_tx_msg(&base_tx(address_1));
+                node_1.broadcast_mempool_msg(&base_tx(address_1));
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
@@ -307,7 +307,7 @@ pub async fn node(
     let gate = if !subscribe_topics.is_empty() {
         MessageCounts::new(gate_topic.unwrap())
     } else {
-        MessageCounts::new(Topic::Mailbox(address))
+        MessageCounts::new(Topic::HotStuffRsSend(address))
     };
     let message_chain = MessageGateChain::new().append(gate.clone());
 

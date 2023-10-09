@@ -123,14 +123,14 @@ pub(crate) async fn start(
                 match engine_command {
                     EngineCommand::Publish(topic, message) => {
                         log::info!("Publish (Topic: {:?})", topic);
-                        if topic == Topic::Mailbox(local_public_address) {
+                        if topic == Topic::HotStuffRsSend(local_public_address) {
                             // send to myself
                             let envelope = Envelope {
                                 origin: local_public_address,
                                 message: message.into(),
                             };
                             message_gates
-                                .message_in(&Topic::Mailbox(local_public_address).hash(), envelope)
+                                .message_in(&Topic::HotStuffRsSend(local_public_address).hash(), envelope)
                                 .await;
                         } else if let Err(e) = swarm.behaviour_mut().broadcast(topic.into(), message) {
                             log::debug!("{:?}", e);
