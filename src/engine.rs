@@ -42,11 +42,10 @@ use std::time::Duration;
 use crate::{
     behaviour::{Behaviour, PeerNetworkEvent},
     config,
-    messages::{Envelope, Topic, DroppedTxMessage},
-    peer::{EngineCommand, PeerBuilder, Peer}, conversions,
+    conversions,
+    messages::{DroppedTxMessage, Envelope, Topic},
+    peer::{EngineCommand, PeerBuilder, Peer},
 };
-
-const KADEMLIA_PROTOCOL_NAME: &str = "/pchain_p2p/1.0.0";
 
 /// [start] p2p networking peer and return the handle [NetworkHandle] of this process.
 pub(crate) async fn start(
@@ -71,9 +70,7 @@ pub(crate) async fn start(
     let transport = build_transport(local_keypair.clone()).await?;
     let behaviour = Behaviour::new(
         local_public_address,
-        &local_keypair,
-        10,
-        &config.kademlia_protocol_names, //TODO jonas
+        &local_keypair
     );
     
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
@@ -90,7 +87,6 @@ pub(crate) async fn start(
     }
 
     // 3. Subscribe to Topic
-    //TODO jonas
     swarm.behaviour_mut().subscribe(config::fullnode_topics(local_public_address))?;
 
     // 4. Start p2p networking
