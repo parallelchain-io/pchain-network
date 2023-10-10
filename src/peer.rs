@@ -5,7 +5,6 @@
 //!     .on_receive_msg(msg_handler)
 //!     .start();
 
-use libp2p::PeerId;
 use pchain_types::blockchain::TransactionV1;
 use pchain_types::cryptography::PublicAddress;
 use tokio::task::JoinHandle;
@@ -15,7 +14,7 @@ use crate::config::Config;
 
 pub struct PeerBuilder {
     pub(crate) config: Option<Config>,
-    pub(crate) handlers: Option<Box<dyn Fn(PeerId, Message)>>,
+    pub(crate) handlers: Option<Box<dyn Fn(PublicAddress, Message)>>,
 }
 
 impl PeerBuilder {
@@ -31,7 +30,7 @@ impl PeerBuilder {
         self
     }
 
-    fn on_receive_msg(&mut self, handlers: impl Fn(PeerId, Message)) -> &mut Self {
+    fn on_receive_msg(&mut self, handlers: impl Fn(PublicAddress, Message)) -> &mut Self {
         self.handlers = Some(Box::new(handlers));
         self
     }

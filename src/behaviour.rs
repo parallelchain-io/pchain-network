@@ -12,7 +12,7 @@ use crate::{messages::{Message, Topic}, conversions};
 use libp2p::{
     gossipsub::{self, ConfigBuilder, MessageAuthenticity, MessageId, PublishError},
     identify,
-    identity::{Keypair, PublicKey},
+    identity::ed25519::{Keypair, PublicKey},
     kad::{
         store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent, KademliaStoreInserts, Mode,
     },
@@ -83,7 +83,7 @@ impl Behaviour {
     }
 
     fn identify_config(public_key: PublicKey, protocol_ver: &str) -> identify::Behaviour {
-        let config = identify::Config::new(protocol_ver.to_string(), public_key);
+        let config = identify::Config::new(protocol_ver.to_string(), public_key.into());
         identify::Behaviour::new(config)
     }
 
@@ -100,7 +100,7 @@ impl Behaviour {
         };
 
         let gossip = gossipsub::Behaviour::new(
-            MessageAuthenticity::Signed(keypair.clone()),
+            MessageAuthenticity::Signed(keypair.clone().into()),
             ConfigBuilder::default()
                 .max_transmit_size(MAX_TRANSMIT_SIZE * MEGABYTES) // block size is limitted to 2 MB. Multiply by factor of safety = 2.
                 .message_id_fn(build_msg_id)

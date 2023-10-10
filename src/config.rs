@@ -1,5 +1,5 @@
 
-use libp2p::identity::Keypair;
+use libp2p::identity::ed25519::Keypair;
 use libp2p::{PeerId, Multiaddr};
 use pchain_types::cryptography::PublicAddress;
 

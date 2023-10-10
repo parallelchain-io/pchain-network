@@ -51,11 +51,9 @@ pub(crate) async fn start(
 
     let config = peer.config.unwrap(); 
 
-    let local_public_address: PublicAddress =
-        conversions::PublicAddress::try_from(config.keypair.public())
-            .expect("Invalid PublicKey from configuration")
-            .into();
-    let local_peer_id = config.keypair.public().to_peer_id();
+    let local_public_address: PublicAddress = config.keypair.public().to_bytes();
+    
+    let local_peer_id = identity::Keypair::from(config.keypair).public().to_peer_id();
     let local_keypair = config.keypair;
     log::info!(
         "Local peer id: {:?} {:?}",
@@ -127,6 +125,7 @@ pub(crate) async fn start(
                                 origin: local_public_address,
                                 message: message.into(),
                             };
+                            peer.handlers.into_iter().map(|handler| handler(local_public_address, message));
                             // TODO
                             // message_gates
                             //     .message_in(&Topic::HotStuffRsSend(local_public_address).hash(), envelope)
@@ -201,7 +200,7 @@ pub(crate) async fn start(
 }
 
 async fn build_transport(
-    keypair: identity::Keypair,
+    keypair: identity::ed25519::Keypair,
 ) -> std::io::Result<Boxed<(PeerId, StreamMuxerBox)>> {
     let transport = {
         let tcp = libp2p::tcp::tokio::Transport::new(tcp::Config::new().nodelay(true));
@@ -213,7 +212,7 @@ async fn build_transport(
 
     Ok(transport
         .upgrade(libp2p::core::upgrade::Version::V1)
-        .authenticate(noise::Config::new(&keypair).unwrap())
+        .authenticate(noise::Config::new(&keypair.into()).unwrap())
         .multiplex(upgrade)
         .timeout(std::time::Duration::from_secs(20))
         .boxed())
