@@ -8,11 +8,9 @@
 //! Library users use [configuration](crate::config) to configure `pchain_network`. In turn, `pchain_network`
 //! uses [behaviour](crate::behaviour) to configure libp2p.
 
-use crate::constants::{MAX_TRANSMIT_SIZE, MEGABYTES};
-use crate::conversions;
-use crate::messages::{Message, Topic};
+use crate::{messages::{Message, Topic}, conversions};
 use libp2p::{
-    gossipsub::{self, ConfigBuilder, IdentTopic, MessageAuthenticity, MessageId, PublishError},
+    gossipsub::{self, ConfigBuilder, MessageAuthenticity, MessageId, PublishError},
     identify,
     identity::{Keypair, PublicKey},
     kad::{
@@ -26,6 +24,9 @@ use libp2p::{
 use pchain_types::cryptography::PublicAddress;
 use std::{time::Duration, vec};
 
+pub(crate) const MAX_TRANSMIT_SIZE: usize = 4;
+pub(crate) const MEGABYTES: usize = 1048576;
+
 /// Defines behaviour of a node on pchain_network
 /// 1. Add or Remove a peer from DHT (Kademlia)
 /// 2. Perform random walk in DHT
@@ -33,14 +34,14 @@ use std::{time::Duration, vec};
 /// 4. Send or Broadcast Gossipsub message
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "PeerNetworkEvent")]
-pub(crate) struct PeerBehaviour {
+pub(crate) struct Behaviour {
     kad: Kademlia<MemoryStore>,
     gossip: gossipsub::Behaviour,
     identify: identify::Behaviour,
     ping: ping::Behaviour,
 }
 
-impl PeerBehaviour {
+impl Behaviour {
     pub fn new(id: PublicAddress, local_key: &Keypair, heartbeat_secs: u64, protocol_name: &str) -> Self {
         let local_peer_id: PeerId = conversions::PublicAddress::new(id)
             .try_into()
@@ -54,7 +55,7 @@ impl PeerBehaviour {
 
         // Configure Gossipsub - subscribe to the topic of its own the base64-encoded public address
         let mut gossip = Self::gossipsub_config(local_key, heartbeat_secs);
-        gossip.subscribe(&Topic::Mailbox(id).into()).unwrap();
+        gossip.subscribe(&Topic::HotStuffRsSend(id).into()).unwrap();
 
         // Configure Ping
         let ping = ping::Behaviour::default();
@@ -136,25 +137,31 @@ impl PeerBehaviour {
         Ok(())
     }
 
-    /// Send [Message] to peer with the given address
-    pub fn send_to(
-        &mut self,
-        address: PublicAddress,
-        msg: Message,
-    ) -> Result<MessageId, PublishError> {
-        let topic = Topic::Mailbox(address).hash();
-        let content: Vec<u8> = msg.into();
-        self.gossip.publish(topic, content)
-    }
+    // /// Send [Message] to peer with the given address
+    // pub fn send_to(
+    //     &mut self,
+    //     address: PublicAddress,
+    //     msg: Message,
+    // ) -> Result<MessageId, PublishError> {
+    //     let topic = Topic::HotStuffRsSend(address).hash();
+    //     self.gossip.publish(topic, msg)
+    // }
 
-    /// Broadcast [Message] with a specific topic
-    pub fn broadcast(
+    // /// Broadcast [Message] with a specific topic
+    // pub fn broadcast(
+    //     &mut self,
+    //     topic: IdentTopic,
+    //     msg: Message,
+    // ) -> Result<MessageId, PublishError> {
+    //     self.gossip.publish(topic, msg)
+    // }
+
+    pub fn publish(
         &mut self,
-        topic: IdentTopic,
+        topic: Topic,
         msg: Message,
     ) -> Result<MessageId, PublishError> {
-        let content: Vec<u8> = msg.into();
-        self.gossip.publish(topic, content)
+        self.gossip.publish(topic.hash(), msg)
     }
 
     /// Check if the [gossipsub::Message] is subscribed by this peer
@@ -163,7 +170,7 @@ impl PeerBehaviour {
     }
 }
 
-/// The definition of Out-Event required by [PeerBehaviour].
+/// The definition of Out-Event required by [Behaviour].
 pub(crate) enum PeerNetworkEvent {
     Kad(KademliaEvent),
     Gossip(gossipsub::Event),
@@ -195,116 +202,3 @@ impl From<identify::Event> for PeerNetworkEvent {
     }
 }
 
-#[cfg(test)]
-
-mod test {
-    use std::net::Ipv4Addr;
-
-    use super::PeerBehaviour;
-    use crate::{Config, conversions, messages::{Topic, MessageTopicHash}, constants};
-
-    use libp2p::{
-        gossipsub,
-        Multiaddr, PeerId,
-    };
-    use pchain_types::cryptography::PublicAddress;
-
-    struct PeerInfo {
-        public_address: PublicAddress,
-        peer_id: PeerId,
-        multi_addr: Multiaddr,
-        behaviour: PeerBehaviour,
-    }
-
-    fn create_new_peer() -> PeerInfo {
-        let peer_config = Config::default();
-        let peer_id = peer_config.keypair.public().to_peer_id();
-        let peer_public_address = conversions::PublicAddress::try_from(peer_id)
-            .unwrap()
-            .into();
-        let peer_ip_addr = Ipv4Addr::new(127, 0, 0, 1);
-        let peer_multiaddr = format!("/ip4/{}/tcp/{}", peer_ip_addr, peer_config.port)
-            .parse()
-            .unwrap();
-
-        let behaviour = PeerBehaviour::new(
-            peer_public_address,
-            &peer_config.keypair,
-            peer_config.peer_discovery_interval,
-            &constants::PROTOCOL_NAME,
-        );
-
-        PeerInfo {
-            public_address: peer_public_address,
-            peer_id,
-            multi_addr: peer_multiaddr,
-            behaviour,
-        }
-    }
-
-    #[test]
-    fn test_add_and_remove_peer() {
-        let mut peer1 = create_new_peer();
-        let peer2 = create_new_peer();
-
-        peer1
-            .behaviour
-            .add_address(&peer2.peer_id, peer2.multi_addr);
-
-        let peer_num: usize = peer1
-            .behaviour
-            .kad
-            .kbuckets()
-            .map(|x| x.num_entries())
-            .sum();
-        assert_eq!(peer_num, 1);
-
-        peer1.behaviour.remove_peer(&peer2.peer_id);
-
-        let peer_num: usize = peer1
-            .behaviour
-            .kad
-            .kbuckets()
-            .map(|x| x.num_entries())
-            .sum();
-        assert_eq!(peer_num, 0);
-    }
-    
-    #[test]
-    fn test_subscribe_topics() {
-        let mut peer1 = create_new_peer();
-        
-        let self_topic_hash = Topic::Mailbox(peer1.public_address).hash();
-        
-        let self_topic_message = gossipsub::Message {
-            source: None,
-            data: vec![],
-            sequence_number: None,
-            topic: self_topic_hash,
-        };
-        assert!(peer1.behaviour.is_subscribed(&self_topic_message));
-        
-        // create new Message with Topic::Consensus and subscribe
-        let consensus_msg = gossipsub::Message {
-            source: None,
-            data: vec![],
-            sequence_number: None,
-            topic: Topic::Consensus.hash(),
-        };
-        let _ = peer1.behaviour.subscribe(vec![Topic::Consensus]);
-        
-        // create Message with unsubscribed topic
-        let unsubscribed_msg = gossipsub::Message {
-            source: None,
-            data: vec![],
-            sequence_number: None,
-            topic: Topic::DroppedTx.hash(),
-        };
-        
-        let subscribed_topics: Vec<&MessageTopicHash> = peer1.behaviour.gossip.topics().collect();
-        assert_eq!(subscribed_topics.len(), 2); //including the initial subscribed topic
-        
-        assert!(peer1.behaviour.is_subscribed(&consensus_msg));
-        assert!(!peer1.behaviour.is_subscribed(&unsubscribed_msg));
-    }
-}

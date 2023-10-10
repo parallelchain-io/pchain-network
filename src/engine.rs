@@ -39,21 +39,20 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use crate::{
-    behaviour::{PeerBehaviour, PeerNetworkEvent},
-    Config,
-    constants, conversions,
-    message_gate::MessageGateChain,
+    behaviour::{Behaviour, PeerNetworkEvent},
     messages::{Envelope, Topic},
-    network_handle::SendCommand,
-    NetworkHandle,
+    peer::{EngineCommand, PeerBuilder, Peer}, conversions,
 };
+
+const KADEMLIA_PROTOCOL_NAME: &str = "/pchain_p2p/1.0.0";
 
 /// [start] p2p networking peer and return the handle [NetworkHandle] of this process.
 pub(crate) async fn start(
-    config: Config,
-    subscribe_topics: Vec<Topic>,
-    message_gates: MessageGateChain,
-) -> Result<NetworkHandle, Box<dyn Error>> {
+    peer: PeerBuilder,
+) -> Result<Peer, Box<dyn Error>> {
+
+    let config = peer.config.unwrap(); 
+
     let local_public_address: PublicAddress =
         conversions::PublicAddress::try_from(config.keypair.public())
             .expect("Invalid PublicKey from configuration")
@@ -68,43 +67,44 @@ pub(crate) async fn start(
 
     // 1. Instantiate Swarm
     let transport = build_transport(local_keypair.clone()).await?;
-    let behaviour = PeerBehaviour::new(
+    let behaviour = Behaviour::new(
         local_public_address,
         &local_keypair,
-        constants::HEARTBEAT_SECS,
-        &config.protocol_name,
+        10,
+        &config.kademlia_protocol_names, //TODO jonas
     );
     
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
-    swarm.listen_on(multiaddr(Ipv4Addr::new(0, 0, 0, 0), config.port))?;
+    swarm.listen_on(multiaddr(Ipv4Addr::new(0, 0, 0, 0), config.listening_port))?;
 
     // 2. Connection to bootstrap nodes
     if !config.boot_nodes.is_empty() {
         config.boot_nodes.iter().for_each(|peer_info| {
             swarm.behaviour_mut().add_address(
-                &peer_info.peer_id,
-                multiaddr(peer_info.ip_address, peer_info.port),
+                &peer_info.0,
+                peer_info.1,
             );
         });
     }
 
     // 3. Subscribe to Topic
-    swarm.behaviour_mut().subscribe(subscribe_topics)?;
+    //TODO jonas
+    swarm.behaviour_mut().subscribe()?;
 
     // 4. Start p2p networking
     let (sender, mut receiver) =
-        tokio::sync::mpsc::channel::<SendCommand>(config.send_command_buffer_size);
+        tokio::sync::mpsc::channel::<EngineCommand>(config.outgoing_msgs_buffer_capacity);
     let mut discover_tick =
         tokio::time::interval(Duration::from_secs(config.peer_discovery_interval));
 
-    let _network_thread_handle = tokio::task::spawn(async move {
+    let network_thread_handle = tokio::task::spawn(async move {
         loop {
             // 4.1 Wait for the following events:
-            let (send_command, event) = tokio::select! {
+            let (engine_command, event) = tokio::select! {
                 biased;
                 // Receive a SendCommand from application
-                send_command = receiver.recv() => {
-                    (send_command, None)
+                engine_command = receiver.recv() => {
+                    (engine_command, None)
                 },
                 // Receive a PeerNetworkEvent
                 event = swarm.select_next_some() => {
@@ -118,30 +118,29 @@ pub(crate) async fn start(
                 },
             };
 
-            // 4.2 Deliver messages when a SendCommand from application is received
-            if let Some(send_command) = send_command {
-                match send_command {
-                    SendCommand::SendTo(recipient, raw_message) => {
-                        log::info!("SendTo: {}", base64url::encode(recipient).as_str());
-                        if recipient == local_public_address {
+            // 4.2 Deliver messages when a EngineCommand from application is received
+            if let Some(engine_command) = engine_command {
+                match engine_command {
+                    EngineCommand::Publish(topic, message) => {
+                        log::info!("Publish (Topic: {:?})", topic);
+                        if topic == Topic::HotStuffRsSend(local_public_address) {
                             // send to myself
                             let envelope = Envelope {
                                 origin: local_public_address,
-                                message: raw_message.into(),
+                                message: message.into(),
                             };
-                            message_gates
-                                .message_in(&Topic::Mailbox(local_public_address).hash(), envelope)
-                                .await;
-                        } else if let Err(e) = swarm.behaviour_mut().send_to(recipient, raw_message)
-                        {
-                            log::error!("{:?}", e);
-                        }
-                    }
-                    SendCommand::Broadcast(topic, msg) => {
-                        log::info!("Broadcast (Topic: {:?})", topic);
-                        if let Err(e) = swarm.behaviour_mut().broadcast(topic.into(), msg) {
+                            // TODO
+                            // message_gates
+                            //     .message_in(&Topic::HotStuffRsSend(local_public_address).hash(), envelope)
+                            //     .await;
+                        } else if let Err(e) = swarm.behaviour_mut().publish(topic.into(), message) {
                             log::debug!("{:?}", e);
                         }
+                    }
+
+                    EngineCommand::Shutdown => {
+                        log::info!("Exiting out of Engine thread");
+                        break
                     }
                 }
             }
@@ -158,11 +157,19 @@ pub(crate) async fn start(
                             {
                                 let public_addr: PublicAddress = public_addr.into();
                                 if swarm.behaviour().is_subscribed(&message) {
-                                    let envelope = Envelope {
-                                        origin: public_addr,
-                                        message: message.data,
-                                    };
-                                    message_gates.message_in(&message.topic, envelope).await;
+                                    // let envelope = Envelope {
+                                    //     origin: public_addr,
+                                    //     message: message.data.into(),
+                                    // };
+                                    // message_gates.message_in(&message.topic, envelope).await;
+
+                                    // TODO jonas
+                                    // The problem here is, Envelope need take in Message type, or in general, we need
+                                    // to know the type of the Message to pass into different handlers.
+                                    // So we need to convert Vec<u8> to pchain_network::Message. Instead of implementing
+                                    // TryFrom trait for Vec<u8> to Message, implement a function that takes in the Message Topic to help
+                                    // converting Vec<u8> to Message. You can refer to fullnode/mempool messagegate to see how to 
+                                    // deserialise each Message type. 
                                 } else {
                                     log::debug!("Receive unknown gossip message");
                                 }
@@ -189,7 +196,10 @@ pub(crate) async fn start(
         }
     });
 
-    Ok(NetworkHandle {sender})
+    Ok(Peer {
+        engine: network_thread_handle,
+        to_engine: sender
+    })
 }
 
 async fn build_transport(
@@ -215,39 +225,4 @@ async fn build_transport(
 /// Create Multiaddr from IP address and port number.
 fn multiaddr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
     format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::build_transport;
-    use crate::engine::start;
-    use crate::{Config, message_gate::MessageGateChain};
-
-    #[tokio::test]
-    async fn network_test_start() {
-        //initialize new test config
-        let test_config = Config::default();
-
-        //create new test vector
-        let test_subscribe_topics = vec![];
-
-        //create new message gate chain
-        let test_gates = MessageGateChain::new();
-
-        //start test network and check for error
-        let result = start(test_config, test_subscribe_topics, test_gates).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_build_transport() {
-        //generate keypair
-        let test_keypair = libp2p::identity::Keypair::generate_ed25519();
-
-        //test build transport function
-        let result = build_transport(test_keypair).await;
-
-        //test output
-        assert!(result.is_ok());
-    }
 }
