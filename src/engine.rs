@@ -40,6 +40,7 @@ use std::time::Duration;
 
 use crate::{
     behaviour::{Behaviour, PeerNetworkEvent},
+    config,
     messages::{Envelope, Topic},
     peer::{EngineCommand, PeerBuilder, Peer}, conversions,
 };
@@ -89,7 +90,7 @@ pub(crate) async fn start(
 
     // 3. Subscribe to Topic
     //TODO jonas
-    swarm.behaviour_mut().subscribe()?;
+    swarm.behaviour_mut().subscribe(config::fullnode_topics(local_public_address))?;
 
     // 4. Start p2p networking
     let (sender, mut receiver) =

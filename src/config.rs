@@ -16,6 +16,6 @@ pub(crate) struct Config {
     pub kademlia_protocol_names: Vec<String>,
 }
 
-fn fullnode_topics(public_address: PublicAddress) -> Vec<Topic> {
+pub(crate) fn fullnode_topics(public_address: PublicAddress) -> Vec<Topic> {
     vec![Topic::HotStuffRsBroadcast, Topic::HotStuffRsSend(public_address).into(), Topic::Mempool, Topic::DroppedTxns]
 }
