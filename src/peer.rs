@@ -15,35 +15,36 @@ use crate::config::Config;
 
 pub struct PeerBuilder {
     pub(crate) config: Option<Config>,
-
+    pub(crate) handlers: Option<Box<dyn Fn(PeerId, Message)>>,
 }
 
 impl PeerBuilder {
     pub fn new() -> PeerBuilder {
         PeerBuilder {
             config: None,
+            handlers: None,
         }
     }
 
-    pub fn configuration(&mut self, config: Config) -> PeerBuilder{
+    pub fn configuration(&mut self, config: Config) -> &mut Self{
         self.config = Some(config);
+        self
     }
 
-    fn on_receive_msg(self, handler: impl Fn(PeerId, Message)) -> PeerBuilder {
-
+    fn on_receive_msg(&mut self, handlers: impl Fn(PeerId, Message)) -> &mut Self {
+        self.handlers = Some(Box::new(handlers));
+        self
     }
 
 
-    pub fn start(self) -> Peer {
+    pub async fn start(self) -> Peer {
         crate::engine::start(self).await.unwrap()
     }
 }
 
-
-
 pub struct Peer {
     pub(crate) engine: JoinHandle<()>,
-    to_engine: tokio::sync::mpsc::Sender<EngineCommand>,
+    pub(crate) to_engine: tokio::sync::mpsc::Sender<EngineCommand>,
 }
 
 impl Peer {

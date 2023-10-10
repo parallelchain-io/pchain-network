@@ -44,8 +44,6 @@ use crate::{
     peer::{EngineCommand, PeerBuilder, Peer}, conversions,
 };
 
-const KADEMLIA_PROTOCOL_NAME: &str = "/pchain_p2p/1.0.0";
-
 /// [start] p2p networking peer and return the handle [NetworkHandle] of this process.
 pub(crate) async fn start(
     peer: PeerBuilder,
@@ -71,7 +69,7 @@ pub(crate) async fn start(
         local_public_address,
         &local_keypair,
         10,
-        &config.kademlia_protocol_names, //TODO jonas
+        &config.kademlia_protocol_name, //TODO jonas
     );
     
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();

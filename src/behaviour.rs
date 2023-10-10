@@ -24,8 +24,8 @@ use libp2p::{
 use pchain_types::cryptography::PublicAddress;
 use std::{time::Duration, vec};
 
-pub(crate) const MAX_TRANSMIT_SIZE: usize = 4;
-pub(crate) const MEGABYTES: usize = 1048576;
+const MAX_TRANSMIT_SIZE: usize = 4;
+const MEGABYTES: usize = 1048576;
 
 /// Defines behaviour of a node on pchain_network
 /// 1. Add or Remove a peer from DHT (Kademlia)
