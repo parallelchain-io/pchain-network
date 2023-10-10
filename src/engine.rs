@@ -24,6 +24,7 @@
 //! Upon receiving commands from application, gossipsub message will be delivered to a
 //! Gossipsub topic.
 
+use borsh::BorshDeserialize;
 use futures::StreamExt;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
@@ -41,7 +42,7 @@ use std::time::Duration;
 use crate::{
     behaviour::{Behaviour, PeerNetworkEvent},
     config,
-    messages::{Envelope, Topic},
+    messages::{Envelope, Topic, DroppedTxMessage},
     peer::{EngineCommand, PeerBuilder, Peer}, conversions,
 };
 
@@ -171,6 +172,37 @@ pub(crate) async fn start(
                                     // TryFrom trait for Vec<u8> to Message, implement a function that takes in the Message Topic to help
                                     // converting Vec<u8> to Message. You can refer to fullnode/mempool messagegate to see how to 
                                     // deserialise each Message type. 
+                                    match message.topic.as_str() {
+                                        "consensus" => {
+                                            let hotstuff_message = 
+                                            hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
+                                            .map_or(None, |msg| {
+                                                Some(msg)
+                                            });
+                                        },
+                                        "mempool" => {
+                                            let mempool_message = 
+                                            pchain_types::blockchain::TransactionV1::deserialize(&mut message.data.as_slice())
+                                            .map_or(None, |msg| {
+                                                Some(msg)
+                                            });
+                                        },
+                                        "droppedTx" => {
+                                            let droppedtx_message = 
+                                            DroppedTxMessage::deserialize(&mut message.data.as_slice())
+                                            .map_or(None, |msg| {
+                                                Some(msg)
+                                            });
+                                        },
+                                        // mailbox topics will be different for every address 
+                                        _ => {
+                                            let hotstuff_message = 
+                                            hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
+                                            .map_or(None, |msg| {
+                                                Some(msg)
+                                            });
+                                        }
+                                    }                                                          
                                 } else {
                                     log::debug!("Receive unknown gossip message");
                                 }
