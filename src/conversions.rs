@@ -7,13 +7,10 @@
 //!
 //! The following are implemented for converting between different types:
 //!     - From<[PublicAddress]> for [ParallelChain PublicAddress](pchain_types::cryptography::PublicAddress)
-//!     - TryFrom<identity::PeerId> for [PublicAddress]
-//!     - TryFrom<[PublicAddress]> for [identity::PeerId]
+//!     - TryFrom<PeerId> for [PublicAddress]
+//!     - TryFrom<[PublicAddress]> for [PeerId]
 
-use libp2p::{
-    identity::{self, ed25519, DecodingError, OtherVariantError},
-    PeerId,
-};
+use libp2p::identity::{self, PeerId, ed25519, DecodingError, OtherVariantError};
 
 /// PublicAddress(PublicAddress) is wrapper around [PublicAddress](pchain_types::cryptography::PublicAddress).
 pub struct PublicAddress(pchain_types::cryptography::PublicAddress);
@@ -30,7 +27,7 @@ impl From<PublicAddress> for pchain_types::cryptography::PublicAddress {
     }
 }
 
-impl TryFrom<identity::PeerId> for PublicAddress {
+impl TryFrom<PeerId> for PublicAddress {
     type Error = ConversionError;
 
     fn try_from(peer_id: PeerId) -> Result<Self, Self::Error> {
@@ -39,7 +36,7 @@ impl TryFrom<identity::PeerId> for PublicAddress {
     }
 }
 
-impl TryFrom<PublicAddress> for identity::PeerId {
+impl TryFrom<PublicAddress> for PeerId {
     type Error = ConversionError;
 
     fn try_from(public_addr: PublicAddress) -> Result<Self, Self::Error> {
@@ -71,7 +68,7 @@ impl From<DecodingError> for ConversionError {
 
 mod test {
     use super::*;
-    use libp2p::identity::Keypair;
+    use identity::Keypair;
 
     #[test]
     fn test_peer_id_and_public_address_conversion() {

@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use borsh::BorshSerialize;
 use futures::lock::Mutex;
 use hotstuff_rs::messages::SyncRequest;
-use libp2p::{identity::{Keypair, PublicKey}, gossipsub::TopicHash};
+use libp2p::gossipsub::TopicHash;
+use libp2p::identity::ed25519::{Keypair, PublicKey};
 use pchain_network::{
     config::{Config, Peer},
     message_gate::{MessageGate, MessageGateChain},

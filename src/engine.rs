@@ -167,6 +167,7 @@ pub(crate) async fn start(
                                     // TryFrom trait for Vec<u8> to Message, implement a function that takes in the Message Topic to help
                                     // converting Vec<u8> to Message. You can refer to fullnode/mempool messagegate to see how to 
                                     // deserialise each Message type. 
+
                                 } else {
                                     log::debug!("Receive unknown gossip message");
                                 }
