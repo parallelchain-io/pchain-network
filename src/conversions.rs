@@ -72,7 +72,7 @@ mod test {
 
     #[test]
     fn test_peer_id_and_public_address_conversion() {
-        // Generate ed25519 keypair and obtain its PeerID.
+        // Generate ed25519 keypair and obtain the corresponding PeerId.
         let test_keypair = Keypair::generate_ed25519();
         let test_peerid = test_keypair.public().to_peer_id();
 

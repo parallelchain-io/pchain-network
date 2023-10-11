@@ -7,7 +7,7 @@
 //! it spawns an asynchronous [tokio] task and enters the main event loop.
 //!
 //! In the event loop, it waits for:
-//! - [PeerNetworkEvent].
+//! - [NetworkEvent].
 //! - [Commands](SendCommand) from application for sending message.
 //! - Timeout of a periodic interval to discover peers in the network.
 //!
@@ -39,7 +39,7 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use crate::{
-    behaviour::{Behaviour, PeerNetworkEvent},
+    behaviour::{Behaviour, NetworkEvent},
     messages::{Envelope, Topic},
     peer::{EngineCommand, PeerBuilder, Peer}, conversions, config,
 };
@@ -141,7 +141,7 @@ pub(crate) async fn start(
             // 4.3 Deliver messages when a PeerNetworkEvent is received
             if let Some(event) = event {
                 match event {
-                    SwarmEvent::Behaviour(PeerNetworkEvent::Gossip(
+                    SwarmEvent::Behaviour(NetworkEvent::Gossip(
                         gossipsub::Event::Message { message, .. },
                     )) => {
                         if let Some(src_peer_id) = &message.source {
@@ -162,8 +162,8 @@ pub(crate) async fn start(
                                     // So we need to convert Vec<u8> to pchain_network::Message. Instead of implementing
                                     // TryFrom trait for Vec<u8> to Message, implement a function that takes in the Message Topic to help
                                     // converting Vec<u8> to Message. You can refer to fullnode/mempool messagegate to see how to 
-                                    // deserialise each Message type. 
-
+                                    // deserialise each Message type.                                                                                    
+                            
                                 } else {
                                     log::debug!("Receive unknown gossip message");
                                 }
@@ -172,7 +172,7 @@ pub(crate) async fn start(
                             }
                         }
                     }
-                    SwarmEvent::Behaviour(PeerNetworkEvent::Identify(
+                    SwarmEvent::Behaviour(NetworkEvent::Identify(
                         identify::Event::Received { peer_id, info },
                     )) => {
                         // update routing table

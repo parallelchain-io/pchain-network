@@ -34,7 +34,7 @@ const MEGABYTES: usize = 1048576;
 /// 3. Subscribe to a gossipsub::Behaviour Topic (see [crate::messages::Topic])
 /// 4. Send or Broadcast Gossipsub message
 #[derive(NetworkBehaviour)]
-#[behaviour(to_swarm = "PeerNetworkEvent")]
+#[behaviour(to_swarm = "NetworkEvent")]
 pub(crate) struct Behaviour {
     kad: Kademlia<MemoryStore>,
     gossip: gossipsub::Behaviour,
@@ -153,32 +153,32 @@ impl Behaviour {
 }
 
 /// The definition of Out-Event required by [Behaviour].
-pub(crate) enum PeerNetworkEvent {
+pub(crate) enum NetworkEvent {
     Kad(KademliaEvent),
     Gossip(gossipsub::Event),
     Ping(ping::Event),
     Identify(identify::Event),
 }
 
-impl From<gossipsub::Event> for PeerNetworkEvent {
+impl From<gossipsub::Event> for NetworkEvent {
     fn from(event: gossipsub::Event) -> Self {
         Self::Gossip(event)
     }
 }
 
-impl From<KademliaEvent> for PeerNetworkEvent {
+impl From<KademliaEvent> for NetworkEvent {
     fn from(event: KademliaEvent) -> Self {
         Self::Kad(event)
     }
 }
 
-impl From<ping::Event> for PeerNetworkEvent {
+impl From<ping::Event> for NetworkEvent {
     fn from(event: ping::Event) -> Self {
         Self::Ping(event)
     }
 }
 
-impl From<identify::Event> for PeerNetworkEvent {
+impl From<identify::Event> for NetworkEvent {
     fn from(event: identify::Event) -> Self {
         Self::Identify(event)
     }

@@ -1,3 +1,18 @@
+/*
+    Copyright © 2023, ParallelChain Lab
+    Licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0
+*/
+
+//! This module defines three main message-related types:
+//! - [Topic]: topics of the messages in the network.
+//! - [Message]: data to be sent in the network, 
+//! - [Envelope]: a wrapper over the message and its origin.
+//! 
+//!
+//! pchain-network only accepts messages with the topics defined in [Topic]. Each topic corresponds 
+//! to a variant in [Message], which is an encapsulation of different types of data to be sent
+//! in the pchain-network. 
+//! 
 
 use borsh::BorshSerialize;
 use libp2p::gossipsub::IdentTopic;
@@ -6,6 +21,17 @@ use pchain_types::{blockchain::TransactionV1, cryptography::{Sha256Hash, PublicA
 /// Hash of the message topic.
 pub type MessageTopicHash = libp2p::gossipsub::TopicHash;
 
+/// [Envelope] encapsulates the message received from the p2p network with it's sender address.
+#[derive(Clone)]
+pub struct Envelope {
+    /// The origin of the message
+    pub origin: PublicAddress,
+
+    /// The message encapsulated
+    pub message: Message,
+}
+
+/// [Topic] defines the topics of the messages in pchain-network.
 #[derive(PartialEq, Debug)]
 pub enum Topic {
     HotStuffRsBroadcast,
@@ -24,86 +50,75 @@ impl From<Topic> for IdentTopic {
     fn from(topic: Topic) -> Self {
         let str = match topic {
             Topic::HotStuffRsBroadcast => "consensus".to_string(),
+            Topic::HotStuffRsSend(addr) => base64url::encode(addr),
             Topic::Mempool => "mempool".to_string(),
             Topic::DroppedTxns => "droppedTx".to_string(),
-            Topic::HotStuffRsSend(addr) => base64url::encode(addr),
         };
         IdentTopic::new(str)
     }
 }
 
+/// [Message] are structured messages that are sent between ParallelChain Network Peers.
 #[derive(Clone)]
 pub enum Message {
-    Consensus(hotstuff_rs::messages::Message),
+    HotStuffRs(hotstuff_rs::messages::Message),
     Mempool(TransactionV1),
-    DroppedTx(DroppedTxMessage),
+    DroppedTxns(DroppedTxnMessage),
 }
 
 impl From<Message> for Vec<u8> {
     fn from(msg: Message) -> Self {
         match msg {
-            Message::Consensus(msg) => msg.try_to_vec().unwrap(),
+            Message::HotStuffRs(msg) => msg.try_to_vec().unwrap(),
             Message::Mempool(txn) => Serializable::serialize(&txn),
-            Message::DroppedTx(msg) => msg.try_to_vec().unwrap(),
+            Message::DroppedTxns(msg) => msg.try_to_vec().unwrap(),
         }
     }
 }
 
-/// [Envelope] encapsulates the message received from the p2p network with it's sender address.
-#[derive(Clone)]
-pub struct Envelope {
-    /// The origin of the message
-    pub origin: PublicAddress,
-
-    /// The message encapsulated
-    pub message: Message,
-}
-
-pub struct MempoolMessage(TransactionV1);
-
-// [DroppedTxMessage] defines data content for Message::DroppedTx.
+/// [DroppedTxnMessage] defines message content for [Message::DroppedTxns].
 #[derive(Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub enum DroppedTxMessage {
+pub enum DroppedTxnMessage {
     MempoolDroppedTx {
         txn: TransactionV1,
-        status_code: DroppedTxStatusCode,
+        status_code: DroppedTxnStatusCode,
     },
     ExecutorDroppedTx {
         tx_hash: Sha256Hash,
-        status_code: DroppedTxStatusCode,
+        status_code: DroppedTxnStatusCode,
     },
 }
 
 #[derive(Clone)]
-pub enum DroppedTxStatusCode {
+pub enum DroppedTxnStatusCode {
     Invalid,
     NonceTooLow,
     NonceInaccessible,
 }
 
-impl From<&DroppedTxStatusCode> for u16 {
-    fn from(status_code: &DroppedTxStatusCode) -> Self {
+impl From<&DroppedTxnStatusCode> for u16 {
+    fn from(status_code: &DroppedTxnStatusCode) -> Self {
         match status_code {
-            DroppedTxStatusCode::Invalid => 0x515_u16,
-            DroppedTxStatusCode::NonceTooLow => 0x516_u16,
-            DroppedTxStatusCode::NonceInaccessible => 0x517_u16,
+            DroppedTxnStatusCode::Invalid => 0x515_u16,
+            DroppedTxnStatusCode::NonceTooLow => 0x516_u16,
+            DroppedTxnStatusCode::NonceInaccessible => 0x517_u16,
         }
     }
 }
 
-impl borsh::BorshSerialize for DroppedTxStatusCode {
+impl borsh::BorshSerialize for DroppedTxnStatusCode {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         let status_code: u16 = self.into();
         status_code.serialize(writer)
     }
 }
 
-impl borsh::BorshDeserialize for DroppedTxStatusCode {
+impl borsh::BorshDeserialize for DroppedTxnStatusCode {
     fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let status_code = match u16::deserialize_reader(reader) {
-            Ok(0x515_u16) => DroppedTxStatusCode::Invalid,
-            Ok(0x516_u16) => DroppedTxStatusCode::NonceTooLow,
-            Ok(0x517_u16) => DroppedTxStatusCode::NonceInaccessible,
+            Ok(0x515_u16) => DroppedTxnStatusCode::Invalid,
+            Ok(0x516_u16) => DroppedTxnStatusCode::NonceTooLow,
+            Ok(0x517_u16) => DroppedTxnStatusCode::NonceInaccessible,
             _ => panic!("Invalid droppedTx status code."),
         };
         Ok(status_code)
