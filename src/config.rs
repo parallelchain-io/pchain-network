@@ -13,7 +13,7 @@ pub(crate) struct Config {
     pub outgoing_msgs_buffer_capacity: usize,
     pub incoming_msgs_buffer_capacity: usize,
     pub peer_discovery_interval: u64,
-    pub kademlia_protocol_names: Vec<String>,
+    pub protocol_name: String,
 }
 
 pub(crate) fn fullnode_topics(public_address: PublicAddress) -> Vec<Topic> {

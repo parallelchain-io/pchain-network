@@ -6,7 +6,7 @@ use pchain_types::{blockchain::TransactionV1, cryptography::{Sha256Hash, PublicA
 /// Hash of the message topic.
 pub type MessageTopicHash = libp2p::gossipsub::TopicHash;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Topic {
     HotStuffRsBroadcast,
     HotStuffRsSend(PublicAddress),

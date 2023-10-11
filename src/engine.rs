@@ -43,7 +43,8 @@ use crate::{
     behaviour::{Behaviour, PeerNetworkEvent},
     config,
     conversions,
-    messages::{DroppedTxMessage, Envelope, Topic},
+    messages::{DroppedTxMessage, Envelope, Topic}, 
+    messages::Topic::{DroppedTxns, HotStuffRsBroadcast, HotStuffRsSend, Mempool},
     peer::{EngineCommand, PeerBuilder, Peer},
 };
 
@@ -70,7 +71,8 @@ pub(crate) async fn start(
     let transport = build_transport(local_keypair.clone()).await?;
     let behaviour = Behaviour::new(
         local_public_address,
-        &local_keypair
+        &local_keypair,
+        config.protocol_name
     );
     
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
@@ -167,43 +169,52 @@ pub(crate) async fn start(
                                     // So we need to convert Vec<u8> to pchain_network::Message. Instead of implementing
                                     // TryFrom trait for Vec<u8> to Message, implement a function that takes in the Message Topic to help
                                     // converting Vec<u8> to Message. You can refer to fullnode/mempool messagegate to see how to 
-                                    // deserialise each Message type. 
-                                    match message.topic.as_str() {
-                                        "consensus" => {
-                                            let hotstuff_message = 
-                                            hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
-                                            .map_or(None, |msg| {
-                                                Some(msg)
-                                            });
-                                        },
-                                        "mempool" => {
-                                            let mempool_message = 
-                                            pchain_types::blockchain::TransactionV1::deserialize(&mut message.data.as_slice())
-                                            .map_or(None, |msg| {
-                                                Some(msg)
-                                            });
-                                        },
-                                        "droppedTx" => {
-                                            let droppedtx_message = 
-                                            DroppedTxMessage::deserialize(&mut message.data.as_slice())
-                                            .map_or(None, |msg| {
-                                                Some(msg)
-                                            });
-                                        },
-                                        // mailbox topics will be different for every address 
-                                        _ => {
-                                            let hotstuff_message = 
-                                            hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
-                                            .map_or(None, |msg| {
-                                                Some(msg)
-                                            });
+                                    // deserialise each Message type.
+
+                                    let topic = config::fullnode_topics(local_public_address)
+                                    .into_iter()
+                                    .find(|t| t.clone().hash() == message.topic);
+
+                                    if let Some(topic) = topic {
+                                        match topic {
+                                            HotStuffRsBroadcast => {
+                                                let hotstuff_message = 
+                                                hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
+                                                .map_or(None, |msg| {
+                                                    Some(msg)
+                                                });
+                                            },
+                                            Mempool => {
+                                                let mempool_message = 
+                                                pchain_types::blockchain::TransactionV1::deserialize(&mut message.data.as_slice())
+                                                .map_or(None, |msg| {
+                                                    Some(msg)
+                                                });
+                                            },
+                                            DroppedTxns => {
+                                                let droppedtx_message = 
+                                                DroppedTxMessage::deserialize(&mut message.data.as_slice())
+                                                .map_or(None, |msg| {
+                                                    Some(msg)
+                                                });
+                                            },
+                                            HotStuffRsSend(local_public_address) => {
+                                                let hotstuff_message = 
+                                                hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
+                                                .map_or(None, |msg| {
+                                                    Some(msg)
+                                                });
+                                            }
                                         }
-                                    }                                                          
+
+                                    } else {
+                                        log::debug!("Invalid message topic");
+                                    }                                                                                                    
                                 } else {
                                     log::debug!("Receive unknown gossip message");
                                 }
                             } else {
-                                log::debug!("Received message from invalid PeerId.")
+                                log::debug!("Received message from invalid PeerId.");
                             }
                         }
                     }

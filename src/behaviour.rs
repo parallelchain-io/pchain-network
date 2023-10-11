@@ -24,9 +24,9 @@ use libp2p::{
 use pchain_types::cryptography::PublicAddress;
 use std::{time::Duration, vec};
 
-pub(crate) const MAX_TRANSMIT_SIZE: usize = 4;
-pub(crate) const MEGABYTES: usize = 1048576;
-pub(crate) const PROTOCOL_NAME: &str = "/pchain_p2p/1.0.0";
+const MAX_TRANSMIT_SIZE: usize = 4;
+const MEGABYTES: usize = 1048576;
+const HEARTBEAT_INTERVAL: u64 = 10;
 
 /// Defines behaviour of a node on pchain_network
 /// 1. Add or Remove a peer from DHT (Kademlia)
@@ -43,16 +43,16 @@ pub(crate) struct Behaviour {
 }
 
 impl Behaviour {
-    pub fn new(id: PublicAddress, local_key: &Keypair) -> Self {
+    pub fn new(id: PublicAddress, local_key: &Keypair, protocol_name: String) -> Self {
         let local_peer_id: PeerId = conversions::PublicAddress::new(id)
             .try_into()
             .expect("Invalid PublicAddress.");
 
         // Configure Kademlia
-        let kad = Self::kad_config(local_peer_id);
+        let kad = Self::kad_config(local_peer_id, protocol_name);
 
         // Configure Identify
-        let identify = Self::identify_config(local_key.public());
+        let identify = Self::identify_config(local_key.public(), protocol_name);
 
         // Configure Gossipsub - subscribe to the topic of its own the base64-encoded public address
         let mut gossip = Self::gossipsub_config(local_key);
@@ -69,8 +69,8 @@ impl Behaviour {
         }
     }
 
-    fn kad_config(peer_id: PeerId) -> Kademlia<MemoryStore> {
-        let protocol_name = StreamProtocol::try_from_owned(PROTOCOL_NAME.to_string()).unwrap();
+    fn kad_config(peer_id: PeerId, protocol_name: String) -> Kademlia<MemoryStore> {
+        let protocol_name = StreamProtocol::try_from_owned(protocol_name).unwrap();
         let kad_config = KademliaConfig::default()
             .set_protocol_names(vec![protocol_name])
             .set_record_filtering(KademliaStoreInserts::FilterBoth)
@@ -83,8 +83,8 @@ impl Behaviour {
         kad
     }
 
-    fn identify_config(public_key: PublicKey) -> identify::Behaviour {
-        let config = identify::Config::new(PROTOCOL_NAME.to_string(), public_key);
+    fn identify_config(public_key: PublicKey, protocol_name: String) -> identify::Behaviour {
+        let config = identify::Config::new(protocol_name, public_key);
         identify::Behaviour::new(config)
     }
 
@@ -105,7 +105,7 @@ impl Behaviour {
             ConfigBuilder::default()
                 .max_transmit_size(MAX_TRANSMIT_SIZE * MEGABYTES) // block size is limitted to 2 MB. Multiply by factor of safety = 2.
                 .message_id_fn(build_msg_id)
-                .heartbeat_interval(Duration::from_secs(10))
+                .heartbeat_interval(Duration::from_secs(HEARTBEAT_INTERVAL))
                 .build()
                 .unwrap(),
         )
