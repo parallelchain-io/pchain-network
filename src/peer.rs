@@ -13,8 +13,8 @@ use crate::messages::{Topic, Message, DroppedTxMessage};
 use crate::config::Config;
 
 pub struct PeerBuilder {
-    pub(crate) config: Option<Config>,
-    pub(crate) handlers: Option<Box<dyn Fn(PublicAddress, Message)>>,
+    pub config: Option<Config>,
+    pub handlers: Option<Box<dyn Fn(PublicAddress, Message) + Send>>,
 }
 
 impl PeerBuilder {
@@ -30,11 +30,10 @@ impl PeerBuilder {
         self
     }
 
-    fn on_receive_msg(&mut self, handlers: impl Fn(PublicAddress, Message)) -> &mut Self {
+    pub fn on_receive_msg(&mut self, handlers: impl Fn(PublicAddress, Message) + Send + 'static) -> &mut Self {
         self.handlers = Some(Box::new(handlers));
         self
     }
-
 
     pub async fn start(self) -> Peer {
         crate::engine::start(self).await.unwrap()
@@ -73,6 +72,12 @@ impl Peer {
             Topic::HotStuffRsSend(address),
             Message::Consensus(msg)
         ));
+    }
+}
+
+impl Drop for Peer {
+    fn drop(&mut self) {
+        let _ = self.to_engine.try_send(EngineCommand::Shutdown);
     }
 }
 

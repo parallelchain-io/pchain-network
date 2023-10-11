@@ -41,7 +41,7 @@ use std::time::Duration;
 use crate::{
     behaviour::{Behaviour, PeerNetworkEvent},
     messages::{Envelope, Topic},
-    peer::{EngineCommand, PeerBuilder, Peer}, conversions,
+    peer::{EngineCommand, PeerBuilder, Peer}, conversions, config,
 };
 
 /// [start] p2p networking peer and return the handle [NetworkHandle] of this process.
@@ -50,11 +50,11 @@ pub(crate) async fn start(
 ) -> Result<Peer, Box<dyn Error>> {
 
     let config = peer.config.unwrap(); 
-
-    let local_public_address: PublicAddress = config.keypair.public().to_bytes();
-    
-    let local_peer_id = identity::Keypair::from(config.keypair).public().to_peer_id();
     let local_keypair = config.keypair;
+
+    let local_public_address: PublicAddress = local_keypair.public().to_bytes();
+    
+    let local_peer_id = identity::Keypair::from(local_keypair.clone()).public().to_peer_id();
     log::info!(
         "Local peer id: {:?} {:?}",
         local_peer_id,
@@ -78,14 +78,14 @@ pub(crate) async fn start(
         config.boot_nodes.iter().for_each(|peer_info| {
             swarm.behaviour_mut().add_address(
                 &peer_info.0,
-                peer_info.1,
+                peer_info.1.clone(),
             );
         });
     }
 
     // 3. Subscribe to Topic
     //TODO jonas
-    swarm.behaviour_mut().subscribe()?;
+    swarm.behaviour_mut().subscribe(config::fullnode_topics(local_public_address))?;
 
     // 4. Start p2p networking
     let (sender, mut receiver) =
@@ -123,20 +123,16 @@ pub(crate) async fn start(
                             // send to myself
                             let envelope = Envelope {
                                 origin: local_public_address,
-                                message: message.into(),
+                                message: message.clone().into(),
                             };
-                            peer.handlers.into_iter().map(|handler| handler(local_public_address, message));
-                            // TODO
-                            // message_gates
-                            //     .message_in(&Topic::HotStuffRsSend(local_public_address).hash(), envelope)
-                            //     .await;
+                            let _ = peer.handlers.iter().map(|handler| handler(local_public_address, message.clone()));
                         } else if let Err(e) = swarm.behaviour_mut().publish(topic.into(), message) {
                             log::debug!("{:?}", e);
                         }
                     }
 
                     EngineCommand::Shutdown => {
-                        log::info!("Exiting out of Engine thread");
+                        log::info!("Shutting down the engine...");
                         break
                     }
                 }

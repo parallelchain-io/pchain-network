@@ -25,7 +25,7 @@ use pchain_types::cryptography::PublicAddress;
 
 use crate::messages::Topic;
 
-pub(crate) struct Config {
+pub struct Config {
     /// Keypair used for identifying the peer
     pub keypair: Keypair,
 
