@@ -43,7 +43,7 @@ use crate::{
     behaviour::{Behaviour, PeerNetworkEvent},
     config,
     conversions,
-    messages::{DroppedTxMessage, Envelope, Topic}, 
+    messages::{DroppedTxMessage, Envelope, Topic, Message}, 
     messages::Topic::{DroppedTxns, HotStuffRsBroadcast, HotStuffRsSend, Mempool},
     peer::{EngineCommand, PeerBuilder, Peer},
 };
@@ -89,7 +89,7 @@ pub(crate) async fn start(
     }
 
     // 3. Subscribe to Topic
-    swarm.behaviour_mut().subscribe(config::fullnode_topics(local_public_address))?;
+    swarm.behaviour_mut().subscribe(config.topics_to_subscribe.clone())?;
 
     // 4. Start p2p networking
     let (sender, mut receiver) =
@@ -169,47 +169,33 @@ pub(crate) async fn start(
                                     // So we need to convert Vec<u8> to pchain_network::Message. Instead of implementing
                                     // TryFrom trait for Vec<u8> to Message, implement a function that takes in the Message Topic to help
                                     // converting Vec<u8> to Message. You can refer to fullnode/mempool messagegate to see how to 
-                                    // deserialise each Message type.
-
+                                    // deserialise each Message type.                                    
                                     let topic = config::fullnode_topics(local_public_address)
                                     .into_iter()
                                     .find(|t| t.clone().hash() == message.topic);
 
+                                    
                                     if let Some(topic) = topic {
-                                        match topic {
+                                        let pchain_message = match topic {
                                             HotStuffRsBroadcast => {
-                                                let hotstuff_message = 
-                                                hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
-                                                .map_or(None, |msg| {
-                                                    Some(msg)
-                                                });
+                                               hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
+                                                .map(|hotstuff_message| Message::Consensus(hotstuff_message))            
                                             },
                                             Mempool => {
-                                                let mempool_message = 
                                                 pchain_types::blockchain::TransactionV1::deserialize(&mut message.data.as_slice())
-                                                .map_or(None, |msg| {
-                                                    Some(msg)
-                                                });
+                                                .map(|mempool_message| Message::Mempool(mempool_message))
                                             },
                                             DroppedTxns => {
-                                                let droppedtx_message = 
                                                 DroppedTxMessage::deserialize(&mut message.data.as_slice())
-                                                .map_or(None, |msg| {
-                                                    Some(msg)
-                                                });
+                                                .map(|droppedtx_message| Message::DroppedTx(droppedtx_message))
                                             },
-                                            HotStuffRsSend(local_public_address) => {
-                                                let hotstuff_message = 
+                                            HotStuffRsSend(address) => {
                                                 hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
-                                                .map_or(None, |msg| {
-                                                    Some(msg)
-                                                });
+                                                .map(|hotstuff_message| Message::Consensus(hotstuff_message))
                                             }
-                                        }
-
-                                    } else {
-                                        log::debug!("Invalid message topic");
-                                    }                                                                                                    
+                                        };
+                                    } 
+                                                                                            
                                 } else {
                                     log::debug!("Receive unknown gossip message");
                                 }
