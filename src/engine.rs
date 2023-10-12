@@ -24,6 +24,7 @@
 //! Upon receiving commands from application, gossipsub message will be delivered to a
 //! Gossipsub topic.
 
+use borsh::BorshDeserialize;
 use futures::StreamExt;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
@@ -39,8 +40,11 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use crate::{
+    config,
+    conversions,
     behaviour::{Behaviour, NetworkEvent},
-    messages::{Envelope, Topic},
+    messages::{DroppedTxMessage, Envelope, Topic, Message}, 
+    messages::Topic::{DroppedTxns, HotStuffRsBroadcast, HotStuffRsSend, Mempool},
     peer::{EngineCommand, PeerBuilder, Peer}, conversions, config,
 };
 
@@ -66,8 +70,7 @@ pub(crate) async fn start(
     let behaviour = Behaviour::new(
         local_public_address,
         &local_keypair,
-        10,
-        &config.kademlia_protocol_name, //TODO jonas
+        config.protocol_name
     );
     
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
@@ -84,8 +87,7 @@ pub(crate) async fn start(
     }
 
     // 3. Subscribe to Topic
-    //TODO jonas
-    swarm.behaviour_mut().subscribe(config::fullnode_topics(local_public_address))?;
+    swarm.behaviour_mut().subscribe(config.topics_to_subscribe.clone())?;
 
     // 4. Start p2p networking
     let (sender, mut receiver) =
@@ -162,13 +164,38 @@ pub(crate) async fn start(
                                     // So we need to convert Vec<u8> to pchain_network::Message. Instead of implementing
                                     // TryFrom trait for Vec<u8> to Message, implement a function that takes in the Message Topic to help
                                     // converting Vec<u8> to Message. You can refer to fullnode/mempool messagegate to see how to 
-                                    // deserialise each Message type.                                                                                    
-                            
+                                  
+                                    // deserialise each Message type.                                    
+                                    let topic = config::fullnode_topics(local_public_address)
+                                    .into_iter()
+                                    .find(|t| t.clone().hash() == message.topic);
+                                    
+                                    if let Some(topic) = topic {
+                                        let pchain_message = match topic {
+                                            HotStuffRsBroadcast => {
+                                               hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
+                                                .map(|hotstuff_message| Message::Consensus(hotstuff_message))            
+                                            },
+                                            Mempool => {
+                                                pchain_types::blockchain::TransactionV1::deserialize(&mut message.data.as_slice())
+                                                .map(|mempool_message| Message::Mempool(mempool_message))
+                                            },
+                                            DroppedTxns => {
+                                                DroppedTxMessage::deserialize(&mut message.data.as_slice())
+                                                .map(|droppedtx_message| Message::DroppedTx(droppedtx_message))
+                                            },
+                                            HotStuffRsSend(address) => {
+                                                hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
+                                                .map(|hotstuff_message| Message::Consensus(hotstuff_message))
+                                            }
+                                        };
+                                    } 
+
                                 } else {
                                     log::debug!("Receive unknown gossip message");
                                 }
                             } else {
-                                log::debug!("Received message from invalid PeerId.")
+                                log::debug!("Received message from invalid PeerId.");
                             }
                         }
                     }

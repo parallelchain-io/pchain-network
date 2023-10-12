@@ -32,7 +32,7 @@ pub struct Envelope {
 }
 
 /// [Topic] defines the topics of the messages in pchain-network.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum Topic {
     HotStuffRsBroadcast,
     HotStuffRsSend(PublicAddress),
