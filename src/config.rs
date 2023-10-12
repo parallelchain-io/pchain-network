@@ -19,8 +19,11 @@
 //!         kademlia_protocol_name: String::from("/pchain_p2p/1.0.0"),
 //!     };
 //! ```
-//! 
-use libp2p::{Multiaddr, identity::{ed25519::Keypair, PeerId}};
+//!
+use libp2p::{
+    identity::{ed25519::Keypair, PeerId},
+    Multiaddr,
+};
 use pchain_types::cryptography::PublicAddress;
 
 use crate::messages::Topic;
@@ -53,5 +56,10 @@ pub struct Config {
 
 // Returns a complete list of accepted topics in pchain-network
 pub(crate) fn fullnode_topics(public_address: PublicAddress) -> Vec<Topic> {
-    vec![Topic::HotStuffRsBroadcast, Topic::HotStuffRsSend(public_address).into(), Topic::Mempool, Topic::DroppedTxns]
+    vec![
+        Topic::HotStuffRsBroadcast,
+        Topic::HotStuffRsSend(public_address),
+        Topic::Mempool,
+        Topic::DroppedTxns,
+    ]
 }

@@ -3,33 +3,26 @@
     Licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0
 */
 
-//! This module defines three main message-related types:
+//! This module defines two main message-related types:
 //! - [Topic]: topics of the messages in the network.
-//! - [Message]: data to be sent in the network, 
-//! - [Envelope]: a wrapper over the message and its origin.
-//! 
+//! - [Message]: data to be sent in the network.
 //!
-//! pchain-network only accepts messages with the topics defined in [Topic]. Each topic corresponds 
+//!
+//! pchain-network only accepts messages with the topics defined in [Topic]. Each topic corresponds
 //! to a variant in [Message], which is an encapsulation of different types of data to be sent
-//! in the pchain-network. 
-//! 
+//! in the pchain-network.
+//!
 
 use borsh::BorshSerialize;
 use libp2p::gossipsub::IdentTopic;
-use pchain_types::{blockchain::TransactionV1, cryptography::{Sha256Hash, PublicAddress}, serialization::Serializable};
+use pchain_types::{
+    blockchain::TransactionV1,
+    cryptography::{PublicAddress, Sha256Hash},
+    serialization::Serializable,
+};
 
 /// Hash of the message topic.
 pub type MessageTopicHash = libp2p::gossipsub::TopicHash;
-
-/// [Envelope] encapsulates the message received from the p2p network with it's sender address.
-#[derive(Clone)]
-pub struct Envelope {
-    /// The origin of the message
-    pub origin: PublicAddress,
-
-    /// The message encapsulated
-    pub message: Message,
-}
 
 /// [Topic] defines the topics of the messages in pchain-network.
 #[derive(PartialEq, Debug, Clone)]

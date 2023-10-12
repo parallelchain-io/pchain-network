@@ -10,7 +10,7 @@
 //!     - TryFrom<PeerId> for [PublicAddress]
 //!     - TryFrom<[PublicAddress]> for [PeerId]
 
-use libp2p::identity::{self, PeerId, ed25519, DecodingError, OtherVariantError};
+use libp2p::identity::{self, ed25519, DecodingError, OtherVariantError, PeerId};
 
 /// PublicAddress(PublicAddress) is wrapper around [PublicAddress](pchain_types::cryptography::PublicAddress).
 pub struct PublicAddress(pchain_types::cryptography::PublicAddress);

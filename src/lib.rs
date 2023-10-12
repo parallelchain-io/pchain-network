@@ -11,8 +11,8 @@
 //! ```no_run
 //! use crate::Config;
 //! use crate::message_gate::MessageGateChain;
-//! 
-//! 
+//!
+//!
 //! // 1. Build a configuration.
 //! let config = Config::default();
 //!
@@ -27,8 +27,8 @@
 //!
 //! // 4. Send out messages.
 //! network.broadcast_mempool_tx_msg(txn);
-//! 
-//! 
+//!
+//!
 
 // TODO jonas: update example usage above
 
