@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use borsh::BorshSerialize;
 use futures::lock::Mutex;
 use hotstuff_rs::messages::SyncRequest;
-use libp2p::{identity::{Keypair, PublicKey}, gossipsub::TopicHash};
+use libp2p::gossipsub::TopicHash;
+use libp2p::identity::ed25519::{Keypair, PublicKey};
 use pchain_network::{
     config::{Config, Peer},
     message_gate::{MessageGate, MessageGateChain},
@@ -34,6 +35,7 @@ fn create_sync_req(start_height: u64) -> hotstuff_rs::messages::Message {
     hotstuff_rs::messages::Message::SyncMessage(test_message)
 }
 
+//TODO jonas update tests
 // - Network: Node1, Node2
 // - Node1: keep broadcasting Mempool topic message
 // - Node2: set Node1 as bootnode, listens to subscribed topics
@@ -261,7 +263,7 @@ async fn test_broadcast_different_topics() {
         30015,
         vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30014)],
         Some(Topic::Mempool),
-        vec![Topic::Consensus],
+        vec![Topic::HotStuffRs],
     )
     .await;
 

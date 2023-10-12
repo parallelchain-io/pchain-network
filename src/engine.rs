@@ -7,7 +7,7 @@
 //! it spawns an asynchronous [tokio] task and enters the main event loop.
 //!
 //! In the event loop, it waits for:
-//! - [PeerNetworkEvent].
+//! - [NetworkEvent].
 //! - [Commands](SendCommand) from application for sending message.
 //! - Timeout of a periodic interval to discover peers in the network.
 //!
@@ -40,12 +40,12 @@ use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use crate::{
-    behaviour::{Behaviour, PeerNetworkEvent},
     config,
     conversions,
+    behaviour::{Behaviour, NetworkEvent},
     messages::{DroppedTxMessage, Envelope, Topic, Message}, 
     messages::Topic::{DroppedTxns, HotStuffRsBroadcast, HotStuffRsSend, Mempool},
-    peer::{EngineCommand, PeerBuilder, Peer},
+    peer::{EngineCommand, PeerBuilder, Peer}, conversions, config,
 };
 
 /// [start] p2p networking peer and return the handle [NetworkHandle] of this process.
@@ -54,13 +54,11 @@ pub(crate) async fn start(
 ) -> Result<Peer, Box<dyn Error>> {
 
     let config = peer.config.unwrap(); 
-
-    let local_public_address: PublicAddress =
-        conversions::PublicAddress::try_from(config.keypair.public())
-            .expect("Invalid PublicKey from configuration")
-            .into();
-    let local_peer_id = config.keypair.public().to_peer_id();
     let local_keypair = config.keypair;
+
+    let local_public_address: PublicAddress = local_keypair.public().to_bytes();
+    
+    let local_peer_id = identity::Keypair::from(local_keypair.clone()).public().to_peer_id();
     log::info!(
         "Local peer id: {:?} {:?}",
         local_peer_id,
@@ -83,7 +81,7 @@ pub(crate) async fn start(
         config.boot_nodes.iter().for_each(|peer_info| {
             swarm.behaviour_mut().add_address(
                 &peer_info.0,
-                peer_info.1,
+                peer_info.1.clone(),
             );
         });
     }
@@ -127,19 +125,16 @@ pub(crate) async fn start(
                             // send to myself
                             let envelope = Envelope {
                                 origin: local_public_address,
-                                message: message.into(),
+                                message: message.clone().into(),
                             };
-                            // TODO
-                            // message_gates
-                            //     .message_in(&Topic::HotStuffRsSend(local_public_address).hash(), envelope)
-                            //     .await;
+                            let _ = peer.handlers.iter().map(|handler| handler(local_public_address, message.clone()));
                         } else if let Err(e) = swarm.behaviour_mut().publish(topic.into(), message) {
                             log::debug!("{:?}", e);
                         }
                     }
 
                     EngineCommand::Shutdown => {
-                        log::info!("Exiting out of Engine thread");
+                        log::info!("Shutting down the engine...");
                         break
                     }
                 }
@@ -148,7 +143,7 @@ pub(crate) async fn start(
             // 4.3 Deliver messages when a PeerNetworkEvent is received
             if let Some(event) = event {
                 match event {
-                    SwarmEvent::Behaviour(PeerNetworkEvent::Gossip(
+                    SwarmEvent::Behaviour(NetworkEvent::Gossip(
                         gossipsub::Event::Message { message, .. },
                     )) => {
                         if let Some(src_peer_id) = &message.source {
@@ -169,11 +164,11 @@ pub(crate) async fn start(
                                     // So we need to convert Vec<u8> to pchain_network::Message. Instead of implementing
                                     // TryFrom trait for Vec<u8> to Message, implement a function that takes in the Message Topic to help
                                     // converting Vec<u8> to Message. You can refer to fullnode/mempool messagegate to see how to 
+                                  
                                     // deserialise each Message type.                                    
                                     let topic = config::fullnode_topics(local_public_address)
                                     .into_iter()
                                     .find(|t| t.clone().hash() == message.topic);
-
                                     
                                     if let Some(topic) = topic {
                                         let pchain_message = match topic {
@@ -195,7 +190,7 @@ pub(crate) async fn start(
                                             }
                                         };
                                     } 
-                                                                                            
+
                                 } else {
                                     log::debug!("Receive unknown gossip message");
                                 }
@@ -204,7 +199,7 @@ pub(crate) async fn start(
                             }
                         }
                     }
-                    SwarmEvent::Behaviour(PeerNetworkEvent::Identify(
+                    SwarmEvent::Behaviour(NetworkEvent::Identify(
                         identify::Event::Received { peer_id, info },
                     )) => {
                         // update routing table
@@ -229,7 +224,7 @@ pub(crate) async fn start(
 }
 
 async fn build_transport(
-    keypair: identity::Keypair,
+    keypair: identity::ed25519::Keypair,
 ) -> std::io::Result<Boxed<(PeerId, StreamMuxerBox)>> {
     let transport = {
         let tcp = libp2p::tcp::tokio::Transport::new(tcp::Config::new().nodelay(true));
@@ -241,7 +236,7 @@ async fn build_transport(
 
     Ok(transport
         .upgrade(libp2p::core::upgrade::Version::V1)
-        .authenticate(noise::Config::new(&keypair).unwrap())
+        .authenticate(noise::Config::new(&keypair.into()).unwrap())
         .multiplex(upgrade)
         .timeout(std::time::Duration::from_secs(20))
         .boxed())
