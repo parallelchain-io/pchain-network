@@ -7,22 +7,31 @@
 //! it spawns an asynchronous [tokio] task and enters the main event loop.
 //!
 //! In the event loop, it waits for:
-//! - [NetworkEvent]
-//! - [Commands](EngineCommand) from application for sending messages or termination
-//! - a periodic interval to discover peers in the network
+//! 1. [NetworkEvent]
+//! 2. [Commands](EngineCommand) from application for sending messages or termination
+//! 3. a periodic interval to discover peers in the network
 //!
-//! ### Events Handling
+//! ### 1. NetworkEvent Handling
 //!
-//! Upon receiving the Libp2p Identify event, peer information is added to the routing table.
-//!
-//! Upon receiving the Libp2p Gossipsub Message event, the message received will be passed to
-//! the chain of message handlers ([crate::messages::MessageGate]).
-//!
-//! Upon receiving the Libp2p ConnectionClosed event, peer information will be removed from the
+//! Upon receiving the Identify event, the information of the new peer will be added to the 
 //! routing table.
 //!
-//! Upon receiving commands from application, gossipsub message will be delivered to a
-//! Gossipsub topic.
+//! Upon receiving the Gossip event, the message will be deserailized to (Message)[crate::messages::Message]
+//! if the peer is subscribed to the topic. The message will then be passed in the message handlers defined
+//! by the user.
+//! 
+//! Upon receiving the ConnectionClosed event, peer information will be removed from the
+//! routing table.
+//!
+//! ### 2. EngineCommand Handling
+//! 
+//! Upon receiving a (Publish)[EngineCommand::Publish] command, the peer will publish the message to its
+//! connected peers. The peer will process the message directly if it is a [Topic::HotStuffRsSend] message
+//! directed to the peer's public address.
+//! 
+//! Upon receiving a (Shutdown)[EngineCommand::Shutdown] command, the process will exit the loop and terminate
+//! the thread.
+//! 
 
 use borsh::BorshDeserialize;
 use futures::StreamExt;

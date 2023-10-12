@@ -7,8 +7,7 @@
 //! - [Topic]: topics of the messages in the network.
 //! - [Message]: data to be sent in the network.
 //!
-//!
-//! pchain-network only accepts messages with the topics defined in [Topic]. Each topic corresponds
+//! `pchain-network` only accepts messages with the topics defined in [Topic]. Each topic corresponds
 //! to a variant in [Message], which is an encapsulation of different types of data to be sent
 //! in the pchain-network.
 //!
@@ -24,7 +23,7 @@ use pchain_types::{
 /// Hash of the message topic.
 pub type MessageTopicHash = libp2p::gossipsub::TopicHash;
 
-/// [Topic] defines the topics of the messages in pchain-network.
+/// [Topic] defines the topics of the messages in `pchain-network`.
 #[derive(PartialEq, Debug, Clone)]
 pub enum Topic {
     HotStuffRsBroadcast,
@@ -115,5 +114,32 @@ impl borsh::BorshDeserialize for DroppedTxnStatusCode {
             _ => panic!("Invalid droppedTx status code."),
         };
         Ok(status_code)
+    }
+}
+
+#[cfg(test)]
+
+mod test {
+    use libp2p::gossipsub::IdentTopic;
+
+    use super::Topic;
+
+    #[test]
+    fn test_message_topic() {
+        let hotstuff_broadcast_topic = Topic::HotStuffRsBroadcast;
+        let ident_topic = IdentTopic::new("consensus".to_string());
+        assert_eq!(hotstuff_broadcast_topic.hash(), ident_topic.hash());
+
+        let hotstuff_send_topic = Topic::HotStuffRsSend([1u8; 32]);
+        let ident_topic = IdentTopic::new(base64url::encode([1u8; 32]));
+        assert_eq!(hotstuff_send_topic.hash(), ident_topic.hash());
+
+        let mempool_topic = Topic::Mempool;
+        let ident_topic = IdentTopic::new("mempool".to_string());
+        assert_eq!(mempool_topic.hash(), ident_topic.hash());
+
+        let droppedtxn_topic = Topic::DroppedTxns;
+        let ident_topic = IdentTopic::new("droppedTx".to_string());
+        assert_eq!(droppedtxn_topic.hash(), ident_topic.hash());
     }
 }
