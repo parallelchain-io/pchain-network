@@ -48,7 +48,7 @@ pub struct Config {
     pub peer_discovery_interval: u64,
 
     /// Protocol name to communicate with other Kademlia nodes
-    pub protocol_name: String,
+    pub kademlia_protocol_name: String,
 }
 
 // Returns a complete list of accepted topics in pchain-network

@@ -50,7 +50,7 @@ impl Behaviour {
             .expect("Invalid PublicAddress.");
 
         // Configure Kademlia
-        let kad = Self::kad_config(local_peer_id, protocol_name);
+        let kad = Self::kad_config(local_peer_id, protocol_name.clone());
 
         // Configure Identify
         let identify = Self::identify_config(local_key.public(), protocol_name);
@@ -85,7 +85,7 @@ impl Behaviour {
     }
 
     fn identify_config(public_key: PublicKey, protocol_name: String) -> identify::Behaviour {
-        let config = identify::Config::new(protocol_name, public_key);
+        let config = identify::Config::new(protocol_name, public_key.into());
         identify::Behaviour::new(config)
     }
 
@@ -220,8 +220,7 @@ mod test {
         let behaviour = Behaviour::new(
             public_address,
             &config.keypair,
-            config.peer_discovery_interval,
-            &config.kademlia_protocol_name,
+            config.kademlia_protocol_name,
         );
 
         let ip_addr = Ipv4Addr::new(127, 0, 0, 1);

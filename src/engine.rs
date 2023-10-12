@@ -43,9 +43,9 @@ use crate::{
     config,
     conversions,
     behaviour::{Behaviour, NetworkEvent},
-    messages::{DroppedTxMessage, Envelope, Topic, Message}, 
+    messages::{DroppedTxnMessage, Envelope, Topic, Message, self}, 
     messages::Topic::{DroppedTxns, HotStuffRsBroadcast, HotStuffRsSend, Mempool},
-    peer::{EngineCommand, PeerBuilder, Peer}, conversions, config,
+    peer::{EngineCommand, PeerBuilder, Peer},
 };
 
 /// [start] p2p networking peer and return the handle [NetworkHandle] of this process.
@@ -70,7 +70,7 @@ pub(crate) async fn start(
     let behaviour = Behaviour::new(
         local_public_address,
         &local_keypair,
-        config.protocol_name
+        config.kademlia_protocol_name
     );
     
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
@@ -152,47 +152,18 @@ pub(crate) async fn start(
                             {
                                 let public_addr: PublicAddress = public_addr.into();
                                 if swarm.behaviour().is_subscribed(&message) {
-                                    // let envelope = Envelope {
-                                    //     origin: public_addr,
-                                    //     message: message.data.into(),
-                                    // };
-                                    // message_gates.message_in(&message.topic, envelope).await;
-
-                                    // TODO jonas
-                                    // The problem here is, Envelope need take in Message type, or in general, we need
-                                    // to know the type of the Message to pass into different handlers.
-                                    // So we need to convert Vec<u8> to pchain_network::Message. Instead of implementing
-                                    // TryFrom trait for Vec<u8> to Message, implement a function that takes in the Message Topic to help
-                                    // converting Vec<u8> to Message. You can refer to fullnode/mempool messagegate to see how to 
-                                  
-                                    // deserialise each Message type.                                    
-                                    let topic = config::fullnode_topics(local_public_address)
-                                    .into_iter()
-                                    .find(|t| t.clone().hash() == message.topic);
+                                    // Send it to ourselves if we subscribed to this topic  
+                                    let topic = identify_topic(message.topic, public_addr.clone());
                                     
-                                    if let Some(topic) = topic {
-                                        let pchain_message = match topic {
-                                            HotStuffRsBroadcast => {
-                                               hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
-                                                .map(|hotstuff_message| Message::Consensus(hotstuff_message))            
-                                            },
-                                            Mempool => {
-                                                pchain_types::blockchain::TransactionV1::deserialize(&mut message.data.as_slice())
-                                                .map(|mempool_message| Message::Mempool(mempool_message))
-                                            },
-                                            DroppedTxns => {
-                                                DroppedTxMessage::deserialize(&mut message.data.as_slice())
-                                                .map(|droppedtx_message| Message::DroppedTx(droppedtx_message))
-                                            },
-                                            HotStuffRsSend(address) => {
-                                                hotstuff_rs::messages::Message::deserialize(&mut message.data.as_slice())
-                                                .map(|hotstuff_message| Message::Consensus(hotstuff_message))
-                                            }
-                                        };
-                                    } 
-
+                                    match topic {
+                                        Some(t) => {
+                                            let message = deserialize_message(message.data, t).unwrap();
+                                            let _ = peer.handlers.iter().map(|handler| handler(local_public_address, message.clone()));
+                                        }
+                                        None => continue,
+                                    }
                                 } else {
-                                    log::debug!("Receive unknown gossip message");
+                                    log::debug!("Received unknown gossip message");
                                 }
                             } else {
                                 log::debug!("Received message from invalid PeerId.");
@@ -241,6 +212,36 @@ async fn build_transport(
         .timeout(std::time::Duration::from_secs(20))
         .boxed())
 }
+
+fn identify_topic(hash: gossipsub::TopicHash, public_addr: PublicAddress) -> Option<Topic>{
+    config::fullnode_topics(public_addr)
+    .into_iter()
+    .find(|t| t.clone().hash() == hash)
+}
+
+fn deserialize_message(data: Vec<u8>, topic: Topic) -> Result<Message, std::io::Error> {
+    let mut data = data.as_slice();
+
+    match topic {
+        HotStuffRsBroadcast => {
+            hotstuff_rs::messages::Message::deserialize(&mut data)
+            .map(Message::HotStuffRs)            
+        },
+        HotStuffRsSend(address) => {
+            hotstuff_rs::messages::Message::deserialize(&mut data)
+            .map(Message::HotStuffRs)
+        },
+        Mempool => {
+            pchain_types::blockchain::TransactionV1::deserialize(&mut data)
+            .map(Message::Mempool)
+        },
+        DroppedTxns => {
+            DroppedTxnMessage::deserialize(&mut data)
+            .map(Message::DroppedTxns)
+        },
+    }
+} 
+
 
 /// To build transport layer of the p2p network.
 /// Create Multiaddr from IP address and port number.
