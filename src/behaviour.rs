@@ -137,7 +137,7 @@ impl Behaviour {
     }
 
     /// Subscribe to [Topic]
-    pub fn subscribe(&mut self, topics: Vec<Topic>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn subscribe(&mut self, topics: Vec<Topic>) -> Result<(), gossipsub::SubscriptionError> {
         for topic in topics {
             self.gossip.subscribe(&topic.into())?;
         }

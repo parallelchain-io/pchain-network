@@ -20,9 +20,9 @@
 //! let config = Config {...}
 //!
 //! // 2. Build the instance of Peer
-//! let peer = PeerBuilder::new()
-//!     .configuration(config)
-//!     .on_receive_msg(msg_handler)
+//! let peer = PeerBuilder::new(config)
+//!     .on_receive_msg(msg_handler1)
+//!     .on_receive_msg(msg_handler2)
 //!     .build();
 //!
 //! // 3. Broadcast or send the message
@@ -38,36 +38,31 @@ use crate::messages::{DroppedTxnMessage, Message, Topic};
 /// The builder struct for constructing a [Peer].
 pub struct PeerBuilder {
     /// Configurations of the peer
-    pub config: Option<Config>,
+    pub config: Config,
 
     /// Message handler to process received messages from the network
-    pub handlers: Option<Box<dyn Fn(PublicAddress, Message) + Send>>,
+    pub handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>,
 }
 
 impl PeerBuilder {
-    pub fn new() -> PeerBuilder {
+    pub fn new(config: Config) -> PeerBuilder {
         PeerBuilder {
-            config: None,
-            handlers: None,
+            config,
+            handlers: vec![],
         }
-    }
-
-    pub fn configuration(&mut self, config: Config) -> &mut Self {
-        self.config = Some(config);
-        self
     }
 
     pub fn on_receive_msg(
         &mut self,
-        handlers: impl Fn(PublicAddress, Message) + Send + 'static,
+        handler: impl Fn(PublicAddress, Message) + Send + 'static,
     ) -> &mut Self {
-        self.handlers = Some(Box::new(handlers));
+        self.handlers.push(Box::new(handler));
         self
     }
 
     /// Constructs a [Peer] from the given configuration and handlers, and start the thread for the p2p network.
-    pub async fn build(self) -> Peer {
-        crate::engine::start(self).await.unwrap()
+    pub async fn build(self) -> Result<Peer, EngineError> {
+        crate::engine::start(self).await
     }
 }
 
@@ -125,4 +120,32 @@ impl Drop for Peer {
 pub(crate) enum EngineCommand {
     Publish(Topic, Message),
     Shutdown,
+}
+pub enum EngineError {
+    /// Failed to read from system configuration path
+    SystemConfigError(std::io::Error),
+
+    /// Failed to subscribe to a topic on gossipsub
+    SubscriptionError(libp2p::gossipsub::SubscriptionError),
+
+    /// Swarm failed to listen on an unsupported address
+    UnsupportedAddressError(libp2p::TransportError<std::io::Error>),
+}
+
+impl From<std::io::Error> for EngineError {
+    fn from(error: std::io::Error) -> EngineError {
+        EngineError::SystemConfigError(error)
+    }
+}
+
+impl From<libp2p::gossipsub::SubscriptionError> for EngineError {
+    fn from(error: libp2p::gossipsub::SubscriptionError) -> EngineError {
+        EngineError::SubscriptionError(error)
+    }
+}
+
+impl From<libp2p::TransportError<std::io::Error>> for EngineError {
+    fn from(error: libp2p::TransportError<std::io::Error>) -> EngineError {
+        EngineError::UnsupportedAddressError(error)
+    }
 }

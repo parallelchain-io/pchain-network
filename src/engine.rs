@@ -13,25 +13,25 @@
 //!
 //! ### 1. NetworkEvent Handling
 //!
-//! Upon receiving the Identify event, the information of the new peer will be added to the 
+//! Upon receiving the Identify event, the information of the new peer will be added to the
 //! routing table.
 //!
 //! Upon receiving the Gossip event, the message will be deserailized to (Message)[crate::messages::Message]
 //! if the peer is subscribed to the topic. The message will then be passed in the message handlers defined
 //! by the user.
-//! 
+//!
 //! Upon receiving the ConnectionClosed event, peer information will be removed from the
 //! routing table.
 //!
 //! ### 2. EngineCommand Handling
-//! 
+//!
 //! Upon receiving a (Publish)[EngineCommand::Publish] command, the peer will publish the message to its
 //! connected peers. The peer will process the message directly if it is a [Topic::HotStuffRsSend] message
 //! directed to the peer's public address.
-//! 
+//!
 //! Upon receiving a (Shutdown)[EngineCommand::Shutdown] command, the process will exit the loop and terminate
 //! the thread.
-//! 
+//!
 
 use borsh::BorshDeserialize;
 use futures::StreamExt;
@@ -45,29 +45,28 @@ use libp2p::{
 };
 use libp2p_mplex::MplexConfig;
 use pchain_types::cryptography::PublicAddress;
-use std::error::Error;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use crate::{
     behaviour::{Behaviour, NetworkEvent},
-    config,
-    conversions,
+    config, conversions,
     messages::Topic::{DroppedTxns, HotStuffRsBroadcast, HotStuffRsSend, Mempool},
     messages::{DroppedTxnMessage, Message, Topic},
-    peer::{EngineCommand, Peer, PeerBuilder},
+    peer::{EngineCommand, EngineError, Peer, PeerBuilder},
 };
 
 /// [start] p2p networking peer and return the handle [Peer] of this process.
-pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, Box<dyn Error>> {
-    let config = peer.config.unwrap();
+pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
+    let config = peer.config;
+
     let local_keypair = config.keypair;
     let local_public_address: PublicAddress = local_keypair.public().to_bytes();
     let local_peer_id = identity::Keypair::from(local_keypair.clone())
         .public()
         .to_peer_id();
 
-    log::info!("Local peer id: {:?}", local_peer_id);
+    log::info!("Local PeerId: {:?}", local_peer_id);
 
     // 1. Instantiate Swarm
     let transport = build_transport(local_keypair.clone()).await?;
@@ -139,8 +138,7 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, Box<dyn Error>> {
                                 .handlers
                                 .iter()
                                 .map(|handler| handler(local_public_address, message.clone()));
-                        } else if let Err(e) = swarm.behaviour_mut().publish(topic, message)
-                        {
+                        } else if let Err(e) = swarm.behaviour_mut().publish(topic, message) {
                             log::debug!("Failed to pulish the message. {:?}", e);
                         }
                     }
@@ -165,23 +163,17 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, Box<dyn Error>> {
                                 let public_addr: PublicAddress = public_addr.into();
                                 if swarm.behaviour().is_subscribed(&message) {
                                     // Send it to ourselves if we subscribed to this topic
-                                    match identify_topic(message.topic, public_addr) {
-                                        Some(t) => {
-                                            if let Ok(message) =
-                                                deserialize_message(message.data, t)
-                                            {
-                                                let _ = peer.handlers.iter().map(|handler| {
-                                                    handler(local_public_address, message.clone())
-                                                });
-                                            }
+                                    if let Some(topic) = identify_topic(message.topic, public_addr)
+                                    {
+                                        if let Ok(message) =
+                                            deserialize_message(message.data, topic)
+                                        {
+                                            let _ = peer.handlers.iter().map(|handler| {
+                                                handler(local_public_address, message.clone())
+                                            });
                                         }
-                                        None => continue,
                                     }
-                                } else {
-                                    log::debug!("Received unknown gossip message");
                                 }
-                            } else {
-                                log::debug!("Received message from invalid PeerId.");
                             }
                         }
                     }
