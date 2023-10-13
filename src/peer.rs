@@ -52,15 +52,15 @@ impl PeerBuilder {
         }
     }
 
-    pub fn configuration(&mut self, config: Config) -> &mut Self {
+    pub fn configuration(mut self, config: Config) -> PeerBuilder {
         self.config = Some(config);
         self
     }
 
     pub fn on_receive_msg(
-        &mut self,
+        mut self,
         handlers: impl Fn(PublicAddress, Message) + Send + 'static,
-    ) -> &mut Self {
+    ) -> PeerBuilder {
         self.handlers = Some(Box::new(handlers));
         self
     }

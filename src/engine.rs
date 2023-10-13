@@ -135,10 +135,9 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, Box<dyn Error>> {
                         log::info!("Publishing (Topic: {:?})", topic);
                         if topic == Topic::HotStuffRsSend(local_public_address) {
                             // send to myself
-                            let _ = peer
-                                .handlers
-                                .iter()
-                                .map(|handler| handler(local_public_address, message.clone()));
+                            peer.handlers.iter()
+                            .for_each(|handler| handler(local_public_address,message.clone()));
+                        
                         } else if let Err(e) = swarm.behaviour_mut().publish(topic, message)
                         {
                             log::debug!("Failed to pulish the message. {:?}", e);
@@ -165,14 +164,13 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, Box<dyn Error>> {
                                 let public_addr: PublicAddress = public_addr.into();
                                 if swarm.behaviour().is_subscribed(&message) {
                                     // Send it to ourselves if we subscribed to this topic
-                                    match identify_topic(message.topic, public_addr) {
-                                        Some(t) => {
+                                    match identify_topic(message.topic, local_public_address) {
+                                        Some(topic) => {
                                             if let Ok(message) =
-                                                deserialize_message(message.data, t)
+                                                deserialize_message(message.data, topic)
                                             {
-                                                let _ = peer.handlers.iter().map(|handler| {
-                                                    handler(local_public_address, message.clone())
-                                                });
+                                                peer.handlers.iter()
+                                                .for_each(|handler| handler(public_addr,message.clone()));
                                             }
                                         }
                                         None => continue,
@@ -230,6 +228,7 @@ async fn build_transport(
 
 /// Identify the [crate::messages::Topic] of the message
 fn identify_topic(topic_hash: TopicHash, public_addr: PublicAddress) -> Option<Topic> {
+    //address for fullnode_topics should be the local peer address
     config::fullnode_topics(public_addr)
         .into_iter()
         .find(|t| t.clone().hash() == topic_hash)
