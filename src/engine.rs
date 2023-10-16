@@ -39,6 +39,7 @@ use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
     dns::TokioDnsConfig,
     gossipsub::{self, TopicHash},
+    Multiaddr,
     identify, identity, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     tcp, yamux, PeerId, Transport,
@@ -89,9 +90,12 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
     // 2. Connection to bootstrap nodes
     if !config.boot_nodes.is_empty() {
         config.boot_nodes.iter().for_each(|peer_info| {
-            swarm
+            let multiaddr = multi_addr(peer_info.1, peer_info.2);
+            if let Ok(peer_id) = &conversions::PublicAddress::new(peer_info.0).try_into() {
+                swarm
                 .behaviour_mut()
-                .add_address(&peer_info.0, peer_info.1.clone());
+                .add_address(peer_id, multiaddr);
+            }
         });
     }
 
@@ -111,7 +115,7 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
             // 4.1 Wait for the following events:
             let (engine_command, event) = tokio::select! {
                 biased;
-                // Receive a EngineCommand from application
+                // Receive an EngineCommand from application
                 engine_command = receiver.recv() => {
                     (engine_command, None)
                 },
@@ -127,18 +131,18 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
                 },
             };
 
-            // 4.2 Deliver messages when a EngineCommand from an application is received
+            // 4.2 Deliver messages when an EngineCommand::Publish from the application is received
+            // and shutdown engine when an EngineCommand::Shutdown from the application is received
             if let Some(engine_command) = engine_command {
                 match engine_command {
                     EngineCommand::Publish(topic, message) => {
                         log::info!("Publishing (Topic: {:?})", topic);
                         if topic == Topic::HotStuffRsSend(local_public_address) {
                             // send to myself
-                            let _ = peer
-                                .handlers
-                                .iter()
-                                .map(|handler| handler(local_public_address, message.clone()));
-                        } else if let Err(e) = swarm.behaviour_mut().publish(topic, message) {
+                            peer.handlers.iter()
+                            .for_each(|handler| handler(local_public_address, message.clone()));
+                        } 
+                        else if let Err(e) = swarm.behaviour_mut().publish(topic, message) {
                             log::debug!("Failed to pulish the message. {:?}", e);
                         }
                     }
@@ -163,13 +167,14 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
                                 let public_addr: PublicAddress = public_addr.into();
                                 if swarm.behaviour().is_subscribed(&message) {
                                     // Send it to ourselves if we subscribed to this topic
-                                    if let Some(topic) = identify_topic(message.topic, public_addr)
+
+                                    if let Some(topic) = identify_topic(message.topic, local_public_address)
                                     {
                                         if let Ok(message) =
                                             deserialize_message(message.data, topic)
                                         {
-                                            let _ = peer.handlers.iter().map(|handler| {
-                                                handler(local_public_address, message.clone())
+                                            peer.handlers.iter().for_each(|handler| {
+                                                handler(public_addr, message.clone())
                                             });
                                         }
                                     }
@@ -221,8 +226,8 @@ async fn build_transport(
 }
 
 /// Identify the [crate::messages::Topic] of the message
-fn identify_topic(topic_hash: TopicHash, public_addr: PublicAddress) -> Option<Topic> {
-    config::fullnode_topics(public_addr)
+fn identify_topic(topic_hash: TopicHash, local_public_address: PublicAddress) -> Option<Topic> {
+    config::fullnode_topics(local_public_address)
         .into_iter()
         .find(|t| t.clone().hash() == topic_hash)
 }
@@ -240,4 +245,9 @@ fn deserialize_message(data: Vec<u8>, topic: Topic) -> Result<Message, std::io::
         }
         DroppedTxns => DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns),
     }
+}
+
+/// Convert ip address [std::net::Ipv4Addr] and port [u16] into MultiAddr [libp2p::Multiaddr] type
+fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
+    format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
 }

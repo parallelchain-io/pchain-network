@@ -10,27 +10,42 @@
 //!
 //! ```no_run
 //! use crate::Config;
-//! use crate::message_gate::MessageGateChain;
+//! use crate::peer:PeerBuilder;
+//! use crate::messages::Message;
 //!
 //!
 //! // 1. Build a configuration.
-//! let config = Config::default();
+//! let config = Config {
+//!     keypair, // libp2p_identity::ed25519::Keypair::generate()
+//!     topics_to_subscribe, // vec![Topic::HotStuffRsBroadcast]
+//!     listening_port, // 25519
+//!     boot_nodes, // vec![]
+//!     outgoing_msgs_buffer_capacity, // 8
+//!     incoming_msgs_buffer_capacity, // 10
+//!     peer_discovery_interval, // 10
+//!     kademlia_protocol_name // "/pchain_p2p/1.0.0"
+//! };
 //!
-//! // 2. Create message gate chain.
-//! let gates = MessageGateChain::new()
-//! // .append(message_gate1)
-//! // .append(message_gate2)
-//! // ...
-//!
+//! // 2. Create a message handler 
+//! let (tx, rx) = mpsc::channel();
+//! let message_sender = tx.clone();
+//! let message_handler = move |msg_orgin: [u8;32], msg: Message| {
+//!     // processing the message...
+//!     let _ = message_sender.send((msg_origin, msg));
+//! };
+//!  
 //! // 3. Start P2P network.
-//! let network = pchain_network::NetworkHandle::start(network_config, subscribe_topics, message_gate_chain).await;
-//!
+//! let peer = PeerBuilder::new(config)
+//!     .on_receive_msg(message_handler)
+//!     .build()
+//!     .await
+//!     .unwrap();
+//! 
 //! // 4. Send out messages.
-//! network.broadcast_mempool_tx_msg(txn);
+//! peer.broadcast_mempool_msg(txn);
 //!
 //!
 
-// TODO jonas: update example usage above
 
 pub mod behaviour;
 

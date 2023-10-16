@@ -248,7 +248,6 @@ mod test {
         }
     }
 
-    // TODO jonas: please verify if theres a better way to check if a peer is added
     #[test]
     fn test_add_and_remove_peer() {
         let mut peer1 = create_new_peer();
@@ -258,23 +257,27 @@ mod test {
             .behaviour
             .add_address(&peer2.peer_id, peer2.multi_addr);
 
-        let peer_num: usize = peer1
+        let peer1_added_peer2 = peer1
             .behaviour
             .kad
             .kbuckets()
-            .map(|x| x.num_entries())
-            .sum();
-        assert_eq!(peer_num, 1);
-
+            .find(|entry| 
+                entry.iter().find(|bucket| 
+                    *bucket.node.key.preimage() == peer2.peer_id).is_some());
+        
+        assert!(peer1_added_peer2.is_some());
+        
         peer1.behaviour.remove_peer(&peer2.peer_id);
 
-        let peer_num: usize = peer1
+        let peer1_added_peer2 = peer1
             .behaviour
             .kad
             .kbuckets()
-            .map(|x| x.num_entries())
-            .sum();
-        assert_eq!(peer_num, 0);
+            .find(|entry| 
+                entry.iter().find(|bucket| 
+                    *bucket.node.key.preimage() == peer2.peer_id).is_some());
+
+        assert!(peer1_added_peer2.is_none());
     }
 
     #[test]

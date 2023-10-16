@@ -53,9 +53,9 @@ impl PeerBuilder {
     }
 
     pub fn on_receive_msg(
-        &mut self,
+        mut self,
         handler: impl Fn(PublicAddress, Message) + Send + 'static,
-    ) -> &mut Self {
+    ) -> PeerBuilder {
         self.handlers.push(Box::new(handler));
         self
     }
@@ -121,6 +121,8 @@ pub(crate) enum EngineCommand {
     Publish(Topic, Message),
     Shutdown,
 }
+
+#[derive(Debug)]
 pub enum EngineError {
     /// Failed to read from system configuration path
     SystemConfigError(std::io::Error),
