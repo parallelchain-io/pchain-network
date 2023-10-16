@@ -1,8 +1,6 @@
-use std::{net::Ipv4Addr, sync::{Arc, mpsc}, time::Duration};
+use std::{net::Ipv4Addr, sync::mpsc, time::Duration};
 
-use async_trait::async_trait;
 use borsh::BorshSerialize;
-use futures::{lock::Mutex, channel::mpsc::Receiver};
 use hotstuff_rs::messages::SyncRequest;
 use libp2p::{Multiaddr, PeerId, identity};
 use libp2p::identity::ed25519::{Keypair, self};
@@ -35,7 +33,6 @@ fn create_sync_req(start_height: u64) -> hotstuff_rs::messages::Message {
     hotstuff_rs::messages::Message::SyncMessage(test_message)
 }
 
-//TODO jonas update tests
 // - Network: Node1, Node2
 // - Node1: keep broadcasting Mempool topic message
 // - Node2: set Node1 as bootnode, listens to subscribed topics
@@ -51,7 +48,7 @@ async fn test_broadcast() {
         keypair_1, 
         30001, 
         vec![], 
-        vec![Topic::Mempool]
+        vec![]
     ).await;
 
     let (_node_2, message_receiver_2) = node(
@@ -82,9 +79,7 @@ async fn test_broadcast() {
                     assert_eq!(msg_vec, Vec::from(message.clone()));
                     assert_eq!(msg_origin, address_1);
                     return
-                } else {
-                    continue
-                }
+                } 
             }
         }
     }
@@ -107,16 +102,15 @@ async fn test_send_to() {
         keypair_1, 
         30003, 
         vec![], 
-        vec![Topic::HotStuffRsSend(address_1)])
-    .await;
+        vec![]
+    ).await;
 
     let (_node_2, message_receiver_2) = node(
         keypair_2,
         30004,
         vec![(peerid_1, multiaddr(Ipv4Addr::new(127, 0, 0, 1), 30003))],
-        vec![Topic::HotStuffRsSend(address_2), Topic::HotStuffRsBroadcast]
-    )
-    .await;
+        vec![Topic::HotStuffRsSend(address_2)]
+    ).await;
 
     let mut sending_limit = 10;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
@@ -139,9 +133,7 @@ async fn test_send_to() {
                     assert_eq!(msg_vec, message.try_to_vec().unwrap());
                     assert_eq!(msg_orgin, address_1);
                     return
-                } else {
-                    continue
-                }             
+                }        
             }
         }
     }
@@ -275,10 +267,8 @@ async fn test_sparse_messaging() {
                     let (node3_message_origin, node3_message) = node3_received.unwrap();
                     let node1_message_vec: Vec<u8> = node1_message.into();
                     let node3_message_vec: Vec<u8> = node3_message.into();
-                    let message_to_node1 = message_to_node1.try_to_vec().unwrap();
-                    let message_to_node3 = message_to_node3.try_to_vec().unwrap();
-                    assert_eq!(node1_message_vec, message_to_node1);
-                    assert_eq!(node3_message_vec, message_to_node3);
+                    assert_eq!(node1_message_vec, message_to_node1.try_to_vec().unwrap());
+                    assert_eq!(node3_message_vec, message_to_node3.try_to_vec().unwrap());
                     assert_eq!(node1_message_origin, address_3);
                     assert_eq!(node3_message_origin, address_1);
                     return;
@@ -404,10 +394,11 @@ async fn test_stopped_node() {
         keypair_2,
         30017,
         vec![(peerid_1, multiaddr(Ipv4Addr::new(127, 0, 0, 1), 30016))],
-        vec![Topic::HotStuffRsSend(address_2), Topic::HotStuffRsBroadcast]
+        vec![Topic::HotStuffRsSend(address_2)]
     )
     .await;
 
+    // Stop node by EngineCommand::Shutdown
     drop(node_2);
 
     let mut sending_limit = 10;
@@ -427,9 +418,7 @@ async fn test_stopped_node() {
                 let node2_received = message_receiver_2.try_recv();
                 if node2_received.is_ok() {
                     panic!("node 2 should not receive messages!")
-                } else {
-                    continue
-                }             
+                }        
             }
         }
     }
@@ -461,11 +450,11 @@ pub async fn node(
         message_sender.send((msg_origin, msg)).unwrap();
     };
 
-    let peer = PeerBuilder::new()
-    .configuration(config)
+    let peer = PeerBuilder::new(config)
     .on_receive_msg(message_handler)
     .build()
-    .await;
+    .await
+    .unwrap();
 
     (peer, rx)
 }
@@ -474,51 +463,3 @@ pub async fn node(
 fn multiaddr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
     format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
 }
-
-// #[async_trait]
-// pub trait Handler: Send + 'static {
-//     async fn process(&self, address: PublicAddress, message: Vec<u8>);
-// }
-
-// #[derive(Clone)]
-// pub struct MessageReceiver {
-//     /// number of calls to proceed()
-//     count_proceed: Arc<Mutex<usize>>,
-
-//     /// actual message received
-//     message_received: Arc<Mutex<Vec<u8>>>,
-
-//     /// source of message
-//     origin: Arc<Mutex<PublicAddress>>,
-// }
-
-// impl MessageReceiver {    
-//     fn new() -> Self {
-//         Self {
-//             count_proceed: Arc::new(Mutex::new(usize::default())),
-//             message_received: Arc::new(Mutex::new(Vec::default())),
-//             origin: Arc::new(Mutex::new(PublicAddress::default())),
-//         }
-//     }
-
-//     async fn received(&self) -> bool {
-//         *self.count_proceed.lock().await > 0
-//     }
-
-//     async fn get_message(&self) -> Vec<u8> {
-//         self.message_received.lock().await.to_vec()
-//     }
-
-//     async fn get_origin(&self) -> PublicAddress {
-//         self.origin.lock().await.to_owned()
-//     }
-// }
-
-// #[async_trait]
-// impl Handler for MessageReceiver {
-//     async fn process(&self, address: PublicAddress, message: Vec<u8>) {
-//         *self.count_proceed.lock().await += 1;
-//         *self.message_received.lock().await = message;
-//         *self.origin.lock().await = address;
-//     }
-// }
