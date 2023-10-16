@@ -2,7 +2,6 @@ use std::{net::Ipv4Addr, sync::mpsc, time::Duration};
 
 use borsh::BorshSerialize;
 use hotstuff_rs::messages::SyncRequest;
-use libp2p::{Multiaddr, PeerId, identity};
 use libp2p::identity::ed25519::{Keypair, self};
 use pchain_network::peer::PeerBuilder;
 use pchain_network::{
@@ -39,7 +38,6 @@ fn create_sync_req(start_height: u64) -> hotstuff_rs::messages::Message {
 #[tokio::test]
 async fn test_broadcast() {
     let keypair_1 = ed25519::Keypair::generate();
-    let peerid_1 = identity::Keypair::from(keypair_1.clone()).public().to_peer_id();
     let address_1 = keypair_1.public().to_bytes();
 
     let keypair_2 = ed25519::Keypair::generate();
@@ -54,7 +52,7 @@ async fn test_broadcast() {
     let (_node_2, message_receiver_2) = node(
         keypair_2,
         30002,
-        vec![(peerid_1, multiaddr(Ipv4Addr::new(127, 0, 0, 1), 30001))],
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30001)],
         vec![Topic::Mempool]
     ).await;
 
@@ -92,7 +90,6 @@ async fn test_broadcast() {
 #[tokio::test]
 async fn test_send_to() {
     let keypair_1 = ed25519::Keypair::generate();
-    let peerid_1 = identity::Keypair::from(keypair_1.clone()).public().to_peer_id();
     let address_1 = keypair_1.public().to_bytes();
 
     let keypair_2 = ed25519::Keypair::generate();
@@ -108,7 +105,7 @@ async fn test_send_to() {
     let (_node_2, message_receiver_2) = node(
         keypair_2,
         30004,
-        vec![(peerid_1, multiaddr(Ipv4Addr::new(127, 0, 0, 1), 30003))],
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30003)],
         vec![Topic::HotStuffRsSend(address_2)]
     ).await;
 
@@ -147,11 +144,9 @@ async fn test_send_to() {
 #[tokio::test]
 async fn test_send_to_only_specific_receiver() {
     let keypair_1 = ed25519::Keypair::generate();
-    let peerid_1 = identity::Keypair::from(keypair_1.clone()).public().to_peer_id();
     let address_1 = keypair_1.public().to_bytes();
 
     let keypair_2 = ed25519::Keypair::generate();
-    let peerid_2 = identity::Keypair::from(keypair_2.clone()).public().to_peer_id();
     let address_2 = keypair_2.public().to_bytes();
 
     let keypair_3 = ed25519::Keypair::generate();
@@ -167,7 +162,7 @@ async fn test_send_to_only_specific_receiver() {
     let (_node_2, _message_receiver_2) = node(
         keypair_2,
         30006,
-        vec![(peerid_1, multiaddr(Ipv4Addr::new(127, 0, 0, 1), 30005))],
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005)],
         vec![Topic::HotStuffRsSend(address_2)]
     )
     .await;
@@ -175,7 +170,7 @@ async fn test_send_to_only_specific_receiver() {
     let (_node_3, message_receiver_3) = node(
         keypair_3,
         30007,
-        vec![(peerid_2, multiaddr(Ipv4Addr::new(127, 0, 0, 1), 30005))],
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30005)],
         vec![Topic::HotStuffRsSend(address_3)]
     )
     .await;
@@ -210,11 +205,9 @@ async fn test_send_to_only_specific_receiver() {
 #[tokio::test]
 async fn test_sparse_messaging() {
     let keypair_1 = ed25519::Keypair::generate();
-    let peerid_1 = identity::Keypair::from(keypair_1.clone()).public().to_peer_id();
     let address_1 = keypair_1.public().to_bytes();
 
     let keypair_2 = ed25519::Keypair::generate();
-    let peerid_2 = identity::Keypair::from(keypair_2.clone()).public().to_peer_id();
     let address_2 = keypair_2.public().to_bytes();
 
     let keypair_3 = ed25519::Keypair::generate();
@@ -230,7 +223,7 @@ async fn test_sparse_messaging() {
     let (_node_2, _message_receiver_2) = node(
         keypair_2,
         30009,
-        vec![(peerid_1, multiaddr(Ipv4Addr::new(127, 0, 0, 1), 30008))],
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30008)],
         vec![Topic::HotStuffRsSend(address_2)]
     )
     .await;
@@ -238,7 +231,7 @@ async fn test_sparse_messaging() {
     let (node_3, message_receiver_3) = node(
         keypair_3,
         30010,
-        vec![(peerid_2, multiaddr(Ipv4Addr::new(127, 0, 0, 1), 30009))],
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30009)],
         vec![Topic::HotStuffRsSend(address_3)]
     )
     .await;
@@ -329,7 +322,6 @@ async fn test_send_to_self() {
 #[tokio::test]
 async fn test_broadcast_different_topics() {
     let keypair_1 = ed25519::Keypair::generate();
-    let peerid_1 = identity::Keypair::from(keypair_1.clone()).public().to_peer_id();
     let address_1 = keypair_1.public().to_bytes();
 
     let keypair_2 = ed25519::Keypair::generate();
@@ -346,7 +338,7 @@ async fn test_broadcast_different_topics() {
     let (_node_2, message_receiver_2) = node(
         keypair_2,
         30015,
-        vec![(peerid_1, multiaddr(Ipv4Addr::new(127, 0, 0, 1), 30014))],
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30014)],
         vec![Topic::HotStuffRsBroadcast, Topic::HotStuffRsSend(address_2)],
     )
     .await;
@@ -377,7 +369,6 @@ async fn test_broadcast_different_topics() {
 #[tokio::test]
 async fn test_stopped_node() {
     let keypair_1 = ed25519::Keypair::generate();
-    let peerid_1 = identity::Keypair::from(keypair_1.clone()).public().to_peer_id();
     let address_1 = keypair_1.public().to_bytes();
 
     let keypair_2 = ed25519::Keypair::generate();
@@ -393,7 +384,7 @@ async fn test_stopped_node() {
     let (node_2, message_receiver_2) = node(
         keypair_2,
         30017,
-        vec![(peerid_1, multiaddr(Ipv4Addr::new(127, 0, 0, 1), 30016))],
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30016)],
         vec![Topic::HotStuffRsSend(address_2)]
     )
     .await;
@@ -428,7 +419,7 @@ async fn test_stopped_node() {
 pub async fn node(
     keypair: Keypair,
     listening_port: u16,
-    boot_nodes: Vec<(PeerId, Multiaddr)>,
+    boot_nodes: Vec<([u8;32], Ipv4Addr, u16)>,
     topics_to_subscribe: Vec<Topic>
 ) -> (Peer, std::sync::mpsc::Receiver<(PublicAddress, Message)>) {
 
@@ -457,9 +448,4 @@ pub async fn node(
     .unwrap();
 
     (peer, rx)
-}
-
-
-fn multiaddr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
-    format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
 }

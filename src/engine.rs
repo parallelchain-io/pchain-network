@@ -39,6 +39,7 @@ use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
     dns::TokioDnsConfig,
     gossipsub::{self, TopicHash},
+    Multiaddr,
     identify, identity, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     tcp, yamux, PeerId, Transport,
@@ -89,9 +90,12 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
     // 2. Connection to bootstrap nodes
     if !config.boot_nodes.is_empty() {
         config.boot_nodes.iter().for_each(|peer_info| {
-            swarm
+            let multiaddr = multi_addr(peer_info.1, peer_info.2);
+            if let Ok(peer_id) = &conversions::PublicAddress::new(peer_info.0).try_into() {
+                swarm
                 .behaviour_mut()
-                .add_address(&peer_info.0, peer_info.1.clone());
+                .add_address(peer_id, multiaddr);
+            }
         });
     }
 
@@ -241,4 +245,9 @@ fn deserialize_message(data: Vec<u8>, topic: Topic) -> Result<Message, std::io::
         }
         DroppedTxns => DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns),
     }
+}
+
+/// Convert [std::net::Ipv4Addr] and port [u16] into MultiAddr[libp2p::Multiaddr] type
+fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
+    format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
 }

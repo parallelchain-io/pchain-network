@@ -20,10 +20,8 @@
 //!     };
 //! ```
 //!
-use libp2p::{
-    identity::{ed25519::Keypair, PeerId},
-    Multiaddr,
-};
+use std::net::Ipv4Addr;
+use libp2p::identity::ed25519::Keypair;
 use pchain_types::cryptography::PublicAddress;
 
 use crate::messages::Topic;
@@ -39,7 +37,7 @@ pub struct Config {
     pub listening_port: u16,
 
     /// Bootstrap nodes for the initial connection
-    pub boot_nodes: Vec<(PeerId, Multiaddr)>,
+    pub boot_nodes: Vec<(PublicAddress, Ipv4Addr, u16)>,
 
     /// Buffer size of outgoing messages
     pub outgoing_msgs_buffer_capacity: usize,
