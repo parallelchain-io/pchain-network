@@ -277,7 +277,7 @@ async fn test_sparse_messaging() {
 }
 
 // - Network: Node1
-// - Node1: keep sending message itself only
+// - Node1: keep sending message to itself only
 #[tokio::test]
 async fn test_send_to_self() {
     let keypair_1 = ed25519::Keypair::generate();
@@ -320,7 +320,7 @@ async fn test_send_to_self() {
 }
 
 // - Network: Node1, Node2
-// - Node1: set Node2 as bootnode, keep broadcasting messages whose topic is not subscribed by Node2
+// - Node1: set Node2 as bootnode, keep broadcasting message with topic that is not subscribed by Node2
 // - Node2: set Node1 as bootnode, should not receive anything from Node1
 #[tokio::test]
 async fn test_broadcast_different_topics() {
@@ -365,8 +365,8 @@ async fn test_broadcast_different_topics() {
 }
 
 // - Network: Node1, Node2
-// - Node1: set Node2 as bootnode, keep sending message to Node2 only
-// - Node2: set Node1 as bootnode, send an EngineCommand::Shutdown to application, should not receive message
+// - Node1: set Node2 as bootnode, keep sending messages to Node2 only
+// - Node2: set Node1 as bootnode, the handle is being dropped, should not receive message
 #[tokio::test]
 async fn test_stopped_node() {
     let keypair_1 = ed25519::Keypair::generate();
