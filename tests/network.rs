@@ -33,7 +33,7 @@ fn create_sync_req(start_height: u64) -> hotstuff_rs::messages::Message {
 }
 
 // - Network: Node1, Node2
-// - Node1: keep broadcasting Mempool topic message
+// - Node1: Set Node2 as bootnode, keep broadcasting Mempool topic message
 // - Node2: set Node1 as bootnode, listens to subscribed topics
 #[tokio::test]
 async fn test_broadcast() {
@@ -41,11 +41,12 @@ async fn test_broadcast() {
     let address_1 = keypair_1.public().to_bytes();
 
     let keypair_2 = ed25519::Keypair::generate();
+    let address_2 = keypair_2.public().to_bytes();
 
     let (node_1, _message_receiver_1) = node(
         keypair_1, 
         30001, 
-        vec![], 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30002)], 
         vec![]
     ).await;
 
@@ -85,7 +86,7 @@ async fn test_broadcast() {
 }
 
 // - Network: Node1, Node2
-// - Node1: keep sending message to Node2 only
+// - Node1: set Node2 as bootnode, keep sending message to Node2 only
 // - Node2: set Node1 as bootnode, listens to subscribed topics
 #[tokio::test]
 async fn test_send_to() {
@@ -98,7 +99,7 @@ async fn test_send_to() {
     let (node_1, _message_receiver_1) = node(
         keypair_1, 
         30003, 
-        vec![], 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30004)], 
         vec![]
     ).await;
 
@@ -106,7 +107,7 @@ async fn test_send_to() {
         keypair_2,
         30004,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30003)],
-        vec![Topic::HotStuffRsSend(address_2)]
+        vec![]
     ).await;
 
     let mut sending_limit = 10;
@@ -138,9 +139,9 @@ async fn test_send_to() {
 }
 
 // - Network: Node1, Node2, Node3
-// - Node1: keep sending message to Node2 only
-// - Node2: set Node1 as bootnode, listens to subscribed topics
-// - Node3: set Node1 as bootnode, should not process any message
+// - Node1: set Node2 and Node3 as bootnode, keep sending message to Node2 only
+// - Node2: set Node1 and Node3 as bootnode, listens to subscribed topics
+// - Node3: set Node1 and Node2 as bootnode, should not process any message
 #[tokio::test]
 async fn test_send_to_only_specific_receiver() {
     let keypair_1 = ed25519::Keypair::generate();
@@ -155,23 +156,26 @@ async fn test_send_to_only_specific_receiver() {
     let (node_1, _message_receiver_1) = node(
         keypair_1,
         30005, 
-        vec![],
-        vec![Topic::HotStuffRsSend(address_1)]
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30006), 
+             (address_3, Ipv4Addr::new(127, 0, 0, 1), 30007)],
+        vec![]
     ).await;
 
     let (_node_2, _message_receiver_2) = node(
         keypair_2,
         30006,
-        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005)],
-        vec![Topic::HotStuffRsSend(address_2)]
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
+             (address_3, Ipv4Addr::new(127, 0, 0, 1), 30007)],
+        vec![]
     )
     .await;
 
     let (_node_3, message_receiver_3) = node(
         keypair_3,
         30007,
-        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30005)],
-        vec![Topic::HotStuffRsSend(address_3)]
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
+             (address_2, Ipv4Addr::new(127, 0, 0, 1), 30006)],
+        vec![]
     )
     .await;
 
@@ -217,14 +221,14 @@ async fn test_sparse_messaging() {
         keypair_1,
         30008, 
         vec![], 
-        vec![Topic::HotStuffRsSend(address_1)]
+        vec![]
     ).await;
 
     let (_node_2, _message_receiver_2) = node(
         keypair_2,
         30009,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30008)],
-        vec![Topic::HotStuffRsSend(address_2)]
+        vec![]
     )
     .await;
 
@@ -232,7 +236,7 @@ async fn test_sparse_messaging() {
         keypair_3,
         30010,
         vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30009)],
-        vec![Topic::HotStuffRsSend(address_3)]
+        vec![]
     )
     .await;
 
@@ -283,9 +287,8 @@ async fn test_send_to_self() {
         keypair_1,
         30013, 
         vec![],
-        vec![Topic::HotStuffRsSend(address_1)]
-    )
-    .await;
+        vec![]
+    ).await;
 
     let mut sending_limit = 10;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
@@ -317,7 +320,7 @@ async fn test_send_to_self() {
 }
 
 // - Network: Node1, Node2
-// - Node1: keep broadcasting messages whose topic is not subscribed by Node2
+// - Node1: set Node2 as bootnode, keep broadcasting messages whose topic is not subscribed by Node2
 // - Node2: set Node1 as bootnode, should not receive anything from Node1
 #[tokio::test]
 async fn test_broadcast_different_topics() {
@@ -330,18 +333,16 @@ async fn test_broadcast_different_topics() {
     let (node_1, _message_receiver_1) = node(
         keypair_1,
         30014, 
-        vec![],
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30015)],
         vec![Topic::Mempool]
-    )
-    .await;
+    ).await;
 
     let (_node_2, message_receiver_2) = node(
         keypair_2,
         30015,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30014)],
-        vec![Topic::HotStuffRsBroadcast, Topic::HotStuffRsSend(address_2)],
-    )
-    .await;
+        vec![Topic::HotStuffRsBroadcast],
+    ).await;
 
     let mut sending_limit = 10;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
@@ -364,8 +365,8 @@ async fn test_broadcast_different_topics() {
 }
 
 // - Network: Node1, Node2
-// - Node1: keep sending message to Node2 only
-// - Node2: Engine::Command(Shutdown), should not receive message
+// - Node1: set Node2 as bootnode, keep sending message to Node2 only
+// - Node2: set Node1 as bootnode, send an EngineCommand::Shutdown to application, should not receive message
 #[tokio::test]
 async fn test_stopped_node() {
     let keypair_1 = ed25519::Keypair::generate();
@@ -377,17 +378,16 @@ async fn test_stopped_node() {
     let (node_1, _message_receiver_1) = node(
         keypair_1, 
         30016, 
-        vec![], 
-        vec![Topic::HotStuffRsSend(address_1)])
-    .await;
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30017)], 
+        vec![]
+    ).await;
 
     let (node_2, message_receiver_2) = node(
         keypair_2,
         30017,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30016)],
-        vec![Topic::HotStuffRsSend(address_2)]
-    )
-    .await;
+        vec![]
+    ).await;
 
     // Stop node by EngineCommand::Shutdown
     drop(node_2);

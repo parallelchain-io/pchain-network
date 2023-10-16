@@ -16,10 +16,10 @@
 //!
 //! // 1. Build a configuration.
 //! let config = Config {
-//!     keypair,
-//!     topics_to_subscribe,
-//!     listening_port, 
-//!     boot_nodes,
+//!     keypair, // libp2p_identity::ed25519::Keypair::generate()
+//!     topics_to_subscribe, // vec![Topic::HotStuffRsBroadcast]
+//!     listening_port, // 25519
+//!     boot_nodes, // vec![]
 //!     outgoing_msgs_buffer_capacity, // 8
 //!     incoming_msgs_buffer_capacity, // 10
 //!     peer_discovery_interval, // 10

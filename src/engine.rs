@@ -115,7 +115,7 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
             // 4.1 Wait for the following events:
             let (engine_command, event) = tokio::select! {
                 biased;
-                // Receive a EngineCommand from application
+                // Receive an EngineCommand from application
                 engine_command = receiver.recv() => {
                     (engine_command, None)
                 },
@@ -131,7 +131,8 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
                 },
             };
 
-            // 4.2 Deliver messages when a EngineCommand from an application is received
+            // 4.2 Deliver messages when an EngineCommand::Publish from the application is received
+            // and shutdown engine when an EngineCommand::Shutdown from the application is received
             if let Some(engine_command) = engine_command {
                 match engine_command {
                     EngineCommand::Publish(topic, message) => {
@@ -172,7 +173,7 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
                                         if let Ok(message) =
                                             deserialize_message(message.data, topic)
                                         {
-                                            let _ = peer.handlers.iter().for_each(|handler| {
+                                            peer.handlers.iter().for_each(|handler| {
                                                 handler(public_addr, message.clone())
                                             });
                                         }
@@ -226,7 +227,6 @@ async fn build_transport(
 
 /// Identify the [crate::messages::Topic] of the message
 fn identify_topic(topic_hash: TopicHash, local_public_address: PublicAddress) -> Option<Topic> {
-    //address for fullnode_topics should be the local peer address
     config::fullnode_topics(local_public_address)
         .into_iter()
         .find(|t| t.clone().hash() == topic_hash)
@@ -247,7 +247,7 @@ fn deserialize_message(data: Vec<u8>, topic: Topic) -> Result<Message, std::io::
     }
 }
 
-/// Convert [std::net::Ipv4Addr] and port [u16] into MultiAddr[libp2p::Multiaddr] type
+/// Convert ip address [std::net::Ipv4Addr] and port [u16] into MultiAddr [libp2p::Multiaddr] type
 fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
     format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
 }
