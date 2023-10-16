@@ -30,6 +30,7 @@
 //! let (tx, rx) = mpsc::channel();
 //! let message_sender = tx.clone();
 //! let message_handler = move |msg_orgin: [u8;32], msg: Message| {
+//!     // processing the message...
 //!     let _ = message_sender.send((msg_origin, msg));
 //! };
 //!  
