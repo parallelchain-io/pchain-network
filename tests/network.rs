@@ -447,7 +447,7 @@ pub async fn node(
 
     let message_sender = tx.clone();
     let message_handler = move |msg_origin: [u8;32], msg: Message| {
-        message_sender.send((msg_origin, msg)).unwrap();
+        let _ = message_sender.send((msg_origin, msg));
     };
 
     let peer = PeerBuilder::new(config)
