@@ -10,7 +10,7 @@
 //!
 //! ```no_run
 //! use crate::Config;
-//! use crate::peer:PeerBuilder;
+//! use crate::peer::PeerBuilder;
 //! use crate::messages::Message;
 //!
 //!

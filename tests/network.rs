@@ -406,8 +406,7 @@ async fn test_stopped_node() {
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                let node2_received = message_receiver_2.try_recv();
-                if node2_received.is_ok() {
+                if message_receiver_2.try_recv().is_ok() {
                     panic!("node 2 should not receive messages!")
                 }        
             }

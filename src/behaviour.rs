@@ -39,7 +39,7 @@ const HEARTBEAT_INTERVAL: u64 = 10;
 /// 1. Add or Remove a peer from DHT (Kademlia)
 /// 2. Perform random walk in DHT
 /// 3. Subscribe to a gossipsub::Behaviour Topic (see [crate::messages::Topic])
-/// 4. Send or Broadcast Gossipsub message
+/// 4. Publish a Gossipsub message
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "NetworkEvent")]
 pub(crate) struct Behaviour {
@@ -145,6 +145,7 @@ impl Behaviour {
         Ok(())
     }
 
+    /// Publish a [Message] to peers subscribed to the [Topic]
     pub fn publish(&mut self, topic: Topic, msg: Message) -> Result<MessageId, PublishError> {
         self.gossip.publish(topic.hash(), msg)
     }

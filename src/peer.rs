@@ -9,7 +9,7 @@
 //! thread is dropped.
 //!
 //! To start a pchain-network peer, the users start with an empty [PeerBuilder]. A [Config] instance, which
-//! contains peer's keypair, or other deplaoyment-specific parameters, such as listening ports, bootstrap
+//! contains the peer's keypair, or other deployment-specific parameters, such as listening ports, bootstrap
 //! nodes etc, will be passed into the [PeerBuilder]. Then, the users need to pass in the handlers for processing
 //! the [Message]. Lastly, building the [PeerBuilder] will return an instance of [Peer].
 //!

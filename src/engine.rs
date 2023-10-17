@@ -78,13 +78,10 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
     );
 
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
-    let multiaddr = format!(
-        "/ip4/{}/tcp/{}",
+    let multiaddr = multi_addr(
         Ipv4Addr::new(0, 0, 0, 0),
         config.listening_port
-    )
-    .parse()
-    .unwrap();
+    );
     swarm.listen_on(multiaddr)?;
 
     // 2. Connection to bootstrap nodes
