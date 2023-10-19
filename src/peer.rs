@@ -34,38 +34,7 @@ use tokio::task::JoinHandle;
 
 use crate::config::Config;
 use crate::messages::{DroppedTxnMessage, Message, Topic};
-use crate::engine::EngineStartError;
 
-/// The builder struct for constructing a [Peer].
-pub struct PeerBuilder {
-    /// Configurations of the peer
-    pub config: Config,
-
-    /// Message handler to process received messages from the network
-    pub handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>,
-}
-
-impl PeerBuilder {
-    pub fn new(config: Config) -> PeerBuilder {
-        PeerBuilder {
-            config,
-            handlers: vec![],
-        }
-    }
-
-    pub fn on_receive_msg(
-        mut self,
-        handler: impl Fn(PublicAddress, Message) + Send + 'static,
-    ) -> PeerBuilder {
-        self.handlers.push(Box::new(handler));
-        self
-    }
-
-    /// Constructs a [Peer] from the given configuration and handlers, and start the thread for the p2p network.
-    pub async fn build(self) -> Result<Peer, EngineStartError> {
-        crate::engine::start(self).await
-    }
-}
 
 pub struct Peer {
     /// Network handle for the [tokio::task] which is the main thread for the
@@ -77,6 +46,15 @@ pub struct Peer {
 }
 
 impl Peer {
+    /// Constructs a [Peer] from the given configuration and handlers, and start the thread for the p2p network.
+    pub async fn start(config: Config, handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> Peer {
+        let (engine, to_engine) = crate::engine::start(config, handlers).await.unwrap();
+        Peer {
+            engine,
+            to_engine,
+        }
+    }
+
     pub fn broadcast_mempool_msg(&self, txn: TransactionV1) {
         let _ = self.to_engine.try_send(EngineCommand::Publish(
             Topic::Mempool,

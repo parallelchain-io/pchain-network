@@ -34,6 +34,7 @@
 //!
 
 use futures::StreamExt;
+use tokio::task::JoinHandle;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
     dns::TokioDnsConfig,
@@ -51,13 +52,14 @@ use crate::{
     behaviour::{Behaviour, NetworkEvent},
     conversions,
     messages::{Message, Topic},
-    peer::{EngineCommand, Peer, PeerBuilder},
+    peer::EngineCommand,
+    config::Config,
 };
 
-/// [start] p2p networking peer and return the handle [Peer] of this process.
-pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineStartError> {
-    let config = peer.config;
 
+/// [start] p2p networking peer and return the handle of this process.
+pub(crate) async fn start(config: Config, message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) 
+    -> Result<(JoinHandle<()>,tokio::sync::mpsc::Sender<EngineCommand>), EngineStartError> {
     let local_keypair = config.keypair;
     let local_public_address: PublicAddress = local_keypair.public().to_bytes();
     let local_peer_id = identity::Keypair::from(local_keypair.clone())
@@ -133,11 +135,11 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineStartError> {
                         log::info!("Publishing (Topic: {:?})", topic);
                         if topic == Topic::HotStuffRsSend(local_public_address) {
                             // send to myself
-                            peer.handlers.iter()
+                            message_handlers.iter()
                             .for_each(|handler| handler(local_public_address, message.clone()));
                         } 
                         else if let Err(e) = swarm.behaviour_mut().publish(topic, message) {
-                            log::debug!("Failed to pulish the message. {:?}", e);
+                            log::debug!("Failed to publish the message. {:?}", e);
                         }
                     }
                     EngineCommand::Shutdown => {
@@ -164,7 +166,7 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineStartError> {
                                     if let Ok(pchain_message) =
                                         Message::try_from(message)
                                     {
-                                        peer.handlers.iter().for_each(|handler| {
+                                        message_handlers.iter().for_each(|handler| {
                                             handler(public_addr, pchain_message.clone())
                                         });
                                     }                                  
@@ -190,10 +192,9 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineStartError> {
         }
     });
 
-    Ok(Peer {
-        engine: network_thread_handle,
-        to_engine: sender,
-    })
+    Ok(
+        (network_thread_handle, sender)
+    )
 }
 
 async fn build_transport(

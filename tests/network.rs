@@ -3,11 +3,10 @@ use std::{net::Ipv4Addr, sync::mpsc, time::Duration};
 use borsh::BorshSerialize;
 use hotstuff_rs::messages::SyncRequest;
 use libp2p::identity::ed25519::{Keypair, self};
-use pchain_network::peer::PeerBuilder;
+use pchain_network::peer::Peer;
 use pchain_network::{
     config::Config,
     messages::{Topic, Message},
-    peer::Peer,
 };
 use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
@@ -440,11 +439,10 @@ pub async fn node(
         let _ = message_sender.send((msg_origin, msg));
     };
 
-    let peer = PeerBuilder::new(config)
-    .on_receive_msg(message_handler)
-    .build()
-    .await
-    .unwrap();
+    let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
+    message_handlers.push(Box::new(message_handler));
+
+    let peer = Peer::start(config, message_handlers).await;
 
     (peer, rx)
 }
