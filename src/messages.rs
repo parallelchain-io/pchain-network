@@ -12,7 +12,7 @@
 //! in the pchain-network.
 //!
 
-use borsh::BorshSerialize;
+use borsh::{BorshSerialize, BorshDeserialize};
 use libp2p::gossipsub::IdentTopic;
 use pchain_types::{
     blockchain::TransactionV1,
@@ -51,7 +51,7 @@ impl From<Topic> for IdentTopic {
 }
 
 /// [Message] are structured messages that are sent between ParallelChain Network Peers.
-#[derive(Clone)]
+#[derive(Clone, BorshSerialize, BorshDeserialize)]
 pub enum Message {
     HotStuffRs(hotstuff_rs::messages::Message),
     Mempool(TransactionV1),
@@ -64,6 +64,28 @@ impl From<Message> for Vec<u8> {
             Message::HotStuffRs(msg) => msg.try_to_vec().unwrap(),
             Message::Mempool(txn) => Serializable::serialize(&txn),
             Message::DroppedTxns(msg) => msg.try_to_vec().unwrap(),
+        }
+    }
+}
+
+impl TryFrom<libp2p::gossipsub::Message> for Message {
+    type Error = std::io::Error;
+
+    fn try_from(message: libp2p::gossipsub::Message) -> Result<Message, std::io::Error> {
+        let (topic_hash, data) = (message.topic, message.data);
+        match topic_hash.as_str() {
+            "consensus" => {
+                hotstuff_rs::messages::Message::deserialize(&mut data.as_slice()).map(Message::HotStuffRs)
+            }
+            "mempool" => {
+                pchain_types::blockchain::TransactionV1::deserialize(&mut data.as_slice()).map(Message::Mempool)
+            }
+            "droppedTx" => {
+                DroppedTxnMessage::deserialize(&mut data.as_slice()).map(Message::DroppedTxns)
+            }
+            _ => {
+                hotstuff_rs::messages::Message::deserialize(&mut data.as_slice()).map(Message::HotStuffRs)
+            }
         }
     }
 }

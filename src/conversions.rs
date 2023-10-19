@@ -11,6 +11,8 @@
 //!     - TryFrom<[PublicAddress]> for [PeerId]
 
 use libp2p::identity::{self, ed25519, DecodingError, OtherVariantError, PeerId};
+use libp2p::Multiaddr;
+use std::net::Ipv4Addr;
 
 /// PublicAddress(PublicAddress) is wrapper around [PublicAddress](pchain_types::cryptography::PublicAddress).
 pub struct PublicAddress(pchain_types::cryptography::PublicAddress);
@@ -62,6 +64,11 @@ impl From<DecodingError> for ConversionError {
     fn from(error: DecodingError) -> ConversionError {
         ConversionError::DecodingError(error)
     }
+}
+
+/// Convert ip address [std::net::Ipv4Addr] and port [u16] into MultiAddr [libp2p::Multiaddr] type
+pub fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
+    format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
 }
 
 #[cfg(test)]

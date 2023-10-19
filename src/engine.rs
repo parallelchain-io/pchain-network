@@ -33,13 +33,11 @@
 //! the thread.
 //!
 
-use borsh::BorshDeserialize;
 use futures::StreamExt;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
     dns::TokioDnsConfig,
-    gossipsub::{self, TopicHash},
-    Multiaddr,
+    gossipsub,
     identify, identity, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     tcp, yamux, PeerId, Transport,
@@ -51,9 +49,8 @@ use std::time::Duration;
 
 use crate::{
     behaviour::{Behaviour, NetworkEvent},
-    config, conversions,
-    messages::Topic::{DroppedTxns, HotStuffRsBroadcast, HotStuffRsSend, Mempool},
-    messages::{DroppedTxnMessage, Message, Topic},
+    conversions,
+    messages::{Message, Topic},
     peer::{EngineCommand, EngineError, Peer, PeerBuilder},
 };
 
@@ -78,7 +75,7 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
     );
 
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
-    let multiaddr = multi_addr(
+    let multiaddr = conversions::multi_addr(
         Ipv4Addr::new(0, 0, 0, 0),
         config.listening_port
     );
@@ -87,7 +84,7 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
     // 2. Connection to bootstrap nodes
     if !config.boot_nodes.is_empty() {
         config.boot_nodes.iter().for_each(|peer_info| {
-            let multiaddr = multi_addr(peer_info.1, peer_info.2);
+            let multiaddr = conversions::multi_addr(peer_info.1, peer_info.2);
             if let Ok(peer_id) = &conversions::PublicAddress::new(peer_info.0).try_into() {
                 swarm
                 .behaviour_mut()
@@ -164,17 +161,13 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
                                 let public_addr: PublicAddress = public_addr.into();
                                 if swarm.behaviour().is_subscribed(&message) {
                                     // Send it to ourselves if we subscribed to this topic
-
-                                    if let Some(topic) = identify_topic(message.topic, local_public_address)
+                                    if let Ok(pchain_message) =
+                                        Message::try_from(message)
                                     {
-                                        if let Ok(message) =
-                                            deserialize_message(message.data, topic)
-                                        {
-                                            peer.handlers.iter().for_each(|handler| {
-                                                handler(public_addr, message.clone())
-                                            });
-                                        }
-                                    }
+                                        peer.handlers.iter().for_each(|handler| {
+                                            handler(public_addr, pchain_message.clone())
+                                        });
+                                    }                                  
                                 }
                             }
                         }
@@ -220,31 +213,4 @@ async fn build_transport(
         .multiplex(upgrade)
         .timeout(std::time::Duration::from_secs(20))
         .boxed())
-}
-
-/// Identify the [crate::messages::Topic] of the message
-fn identify_topic(topic_hash: TopicHash, local_public_address: PublicAddress) -> Option<Topic> {
-    config::fullnode_topics(local_public_address)
-        .into_iter()
-        .find(|t| t.clone().hash() == topic_hash)
-}
-
-/// Deserialize [libp2p::gossipsub::Message] into [crate::messages::Message]
-fn deserialize_message(data: Vec<u8>, topic: Topic) -> Result<Message, std::io::Error> {
-    let mut data = data.as_slice();
-
-    match topic {
-        HotStuffRsBroadcast | HotStuffRsSend(_) => {
-            hotstuff_rs::messages::Message::deserialize(&mut data).map(Message::HotStuffRs)
-        }
-        Mempool => {
-            pchain_types::blockchain::TransactionV1::deserialize(&mut data).map(Message::Mempool)
-        }
-        DroppedTxns => DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns),
-    }
-}
-
-/// Convert ip address [std::net::Ipv4Addr] and port [u16] into MultiAddr [libp2p::Multiaddr] type
-fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
-    format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
 }
