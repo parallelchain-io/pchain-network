@@ -51,11 +51,11 @@ use crate::{
     behaviour::{Behaviour, NetworkEvent},
     conversions,
     messages::{Message, Topic},
-    peer::{EngineCommand, EngineError, Peer, PeerBuilder},
+    peer::{EngineCommand, Peer, PeerBuilder},
 };
 
 /// [start] p2p networking peer and return the handle [Peer] of this process.
-pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
+pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineStartError> {
     let config = peer.config;
 
     let local_keypair = config.keypair;
@@ -213,4 +213,34 @@ async fn build_transport(
         .multiplex(upgrade)
         .timeout(std::time::Duration::from_secs(20))
         .boxed())
+}
+
+#[derive(Debug)]
+pub enum EngineStartError {
+    /// Failed to read from system configuration path
+    SystemConfigError(std::io::Error),
+
+    /// Failed to subscribe to a topic on gossipsub
+    SubscriptionError(libp2p::gossipsub::SubscriptionError),
+
+    /// Swarm failed to listen on an unsupported address
+    UnsupportedAddressError(libp2p::TransportError<std::io::Error>),
+}
+
+impl From<std::io::Error> for EngineStartError {
+    fn from(error: std::io::Error) -> EngineStartError {
+        EngineStartError::SystemConfigError(error)
+    }
+}
+
+impl From<libp2p::gossipsub::SubscriptionError> for EngineStartError {
+    fn from(error: libp2p::gossipsub::SubscriptionError) -> EngineStartError {
+        EngineStartError::SubscriptionError(error)
+    }
+}
+
+impl From<libp2p::TransportError<std::io::Error>> for EngineStartError {
+    fn from(error: libp2p::TransportError<std::io::Error>) -> EngineStartError {
+        EngineStartError::UnsupportedAddressError(error)
+    }
 }

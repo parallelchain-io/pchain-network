@@ -34,6 +34,7 @@ use tokio::task::JoinHandle;
 
 use crate::config::Config;
 use crate::messages::{DroppedTxnMessage, Message, Topic};
+use crate::engine::EngineStartError;
 
 /// The builder struct for constructing a [Peer].
 pub struct PeerBuilder {
@@ -61,7 +62,7 @@ impl PeerBuilder {
     }
 
     /// Constructs a [Peer] from the given configuration and handlers, and start the thread for the p2p network.
-    pub async fn build(self) -> Result<Peer, EngineError> {
+    pub async fn build(self) -> Result<Peer, EngineStartError> {
         crate::engine::start(self).await
     }
 }
@@ -122,32 +123,3 @@ pub(crate) enum EngineCommand {
     Shutdown,
 }
 
-#[derive(Debug)]
-pub enum EngineError {
-    /// Failed to read from system configuration path
-    SystemConfigError(std::io::Error),
-
-    /// Failed to subscribe to a topic on gossipsub
-    SubscriptionError(libp2p::gossipsub::SubscriptionError),
-
-    /// Swarm failed to listen on an unsupported address
-    UnsupportedAddressError(libp2p::TransportError<std::io::Error>),
-}
-
-impl From<std::io::Error> for EngineError {
-    fn from(error: std::io::Error) -> EngineError {
-        EngineError::SystemConfigError(error)
-    }
-}
-
-impl From<libp2p::gossipsub::SubscriptionError> for EngineError {
-    fn from(error: libp2p::gossipsub::SubscriptionError) -> EngineError {
-        EngineError::SubscriptionError(error)
-    }
-}
-
-impl From<libp2p::TransportError<std::io::Error>> for EngineError {
-    fn from(error: libp2p::TransportError<std::io::Error>) -> EngineError {
-        EngineError::UnsupportedAddressError(error)
-    }
-}
