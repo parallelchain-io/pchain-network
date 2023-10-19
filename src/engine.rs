@@ -38,7 +38,8 @@ use futures::StreamExt;
 use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
     dns::TokioDnsConfig,
-    gossipsub::{self, TopicHash},
+    gossipsub::{self},
+    kad::KBucketKey,
     Multiaddr,
     identify, identity, noise,
     swarm::{SwarmBuilder, SwarmEvent},
@@ -51,8 +52,7 @@ use std::time::Duration;
 
 use crate::{
     behaviour::{Behaviour, NetworkEvent},
-    config, conversions,
-    messages::Topic::{DroppedTxns, HotStuffRsBroadcast, HotStuffRsSend, Mempool},
+    conversions,
     messages::{DroppedTxnMessage, Message, Topic},
     peer::{EngineCommand, EngineError, Peer, PeerBuilder},
 };
@@ -162,19 +162,15 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
                                 conversions::PublicAddress::try_from(*src_peer_id)
                             {
                                 let public_addr: PublicAddress = public_addr.into();
-                                if swarm.behaviour().is_subscribed(&message) {
+                                if swarm.behaviour().is_subscribed(&message.topic) {
                                     // Send it to ourselves if we subscribed to this topic
-
-                                    if let Some(topic) = identify_topic(message.topic, local_public_address)
+                                    if let Ok(message) =
+                                        deserialize_message(message)
                                     {
-                                        if let Ok(message) =
-                                            deserialize_message(message.data, topic)
-                                        {
-                                            peer.handlers.iter().for_each(|handler| {
-                                                handler(public_addr, message.clone())
-                                            });
-                                        }
-                                    }
+                                        peer.handlers.iter().for_each(|handler| {
+                                            handler(public_addr, message.clone())
+                                        });
+                                    }                                   
                                 }
                             }
                         }
@@ -187,9 +183,29 @@ pub(crate) async fn start(peer: PeerBuilder) -> Result<Peer, EngineError> {
                         info.listen_addrs.iter().for_each(|a| {
                             swarm.behaviour_mut().add_address(&peer_id, a.clone());
                         });
+
+                        // Subscribe to mailbox topic [HotStuffRsSend(PublicAddress)]
+                        if let Ok(addr) = conversions::PublicAddress::try_from(peer_id) {
+                            let public_addr: PublicAddress = addr.into();
+                            let topic = Topic::HotStuffRsSend(public_addr);
+                            if !swarm.behaviour().is_subscribed(&topic.clone().hash())
+                                && is_close_peer(&local_peer_id, &peer_id)
+                            {
+                                let _ = swarm.behaviour_mut().subscribe(vec![topic]);
+                            }
+                        }
                     }
                     SwarmEvent::ConnectionClosed { peer_id, .. } => {
                         swarm.behaviour_mut().remove_peer(&peer_id);
+
+                        // Unsubscribe from mailbox topic [HotStuffRsSend(PublicAddress)]
+                        if let Ok(addr) = conversions::PublicAddress::try_from(peer_id) {
+                            let public_addr: PublicAddress = addr.into();
+                            let topic = Topic::HotStuffRsSend(public_addr);
+                            if swarm.behaviour().is_subscribed(&topic.clone().hash()) {
+                                let _ = swarm.behaviour_mut().unsubscribe(vec![topic]);
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -222,29 +238,40 @@ async fn build_transport(
         .boxed())
 }
 
-/// Identify the [crate::messages::Topic] of the message
-fn identify_topic(topic_hash: TopicHash, local_public_address: PublicAddress) -> Option<Topic> {
-    config::fullnode_topics(local_public_address)
-        .into_iter()
-        .find(|t| t.clone().hash() == topic_hash)
-}
-
 /// Deserialize [libp2p::gossipsub::Message] into [crate::messages::Message]
-fn deserialize_message(data: Vec<u8>, topic: Topic) -> Result<Message, std::io::Error> {
-    let mut data = data.as_slice();
+fn deserialize_message(msg: gossipsub::Message) -> Result<Message, std::io::Error> {
+    let mut data = msg.data.as_slice();
+    let topic_hash = msg.topic.as_str();
 
-    match topic {
-        HotStuffRsBroadcast | HotStuffRsSend(_) => {
+    match topic_hash {
+        "consensus" => {
             hotstuff_rs::messages::Message::deserialize(&mut data).map(Message::HotStuffRs)
         }
-        Mempool => {
+        "mempool" => {
             pchain_types::blockchain::TransactionV1::deserialize(&mut data).map(Message::Mempool)
         }
-        DroppedTxns => DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns),
+        "droppedTx" => {
+            DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns)
+        },
+        _ => {
+            hotstuff_rs::messages::Message::deserialize(&mut data).map(Message::HotStuffRs)
+        },
     }
 }
 
 /// Convert ip address [std::net::Ipv4Addr] and port [u16] into MultiAddr [libp2p::Multiaddr] type
 fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
     format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
+}
+
+/// Check the distance between 2 peers. Subscribe to new peer's mailbox topic
+/// if the distance is below 255
+fn is_close_peer(peer_1: &PeerId, peer_2: &PeerId) -> bool {
+    let peer_1_key = KBucketKey::from(*peer_1);
+    let peer_2_key = KBucketKey::from(*peer_2);
+    // returns the distance in base2 logarithm ranging from 0 - 256
+    let distance = KBucketKey::distance(&peer_1_key, &peer_2_key)
+        .ilog2()
+        .unwrap_or(0);
+    distance < 255
 }

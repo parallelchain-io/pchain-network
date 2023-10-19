@@ -51,13 +51,3 @@ pub struct Config {
     /// Protocol name to communicate with other Kademlia nodes
     pub kademlia_protocol_name: String,
 }
-
-// Returns a complete list of accepted topics in pchain-network
-pub(crate) fn fullnode_topics(public_address: PublicAddress) -> Vec<Topic> {
-    vec![
-        Topic::HotStuffRsBroadcast,
-        Topic::HotStuffRsSend(public_address),
-        Topic::Mempool,
-        Topic::DroppedTxns,
-    ]
-}

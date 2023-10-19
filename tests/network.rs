@@ -2,7 +2,8 @@ use std::{net::Ipv4Addr, sync::mpsc, time::Duration};
 
 use borsh::BorshSerialize;
 use hotstuff_rs::messages::SyncRequest;
-use libp2p::identity::ed25519::{Keypair, self};
+use libp2p::identity::{ed25519::{Keypair, self}, PublicKey};
+use libp2p::kad::KBucketKey;
 use pchain_network::peer::PeerBuilder;
 use pchain_network::{
     config::Config,
@@ -139,18 +140,26 @@ async fn test_send_to() {
 }
 
 // - Network: Node1, Node2, Node3
+// - Node2 and Node3 are close peers to subscribe to each other's mailbox 
 // - Node1: set Node2 and Node3 as bootnode, keep sending message to Node2 only
 // - Node2: set Node1 and Node3 as bootnode, listens to subscribed topics
-// - Node3: set Node1 and Node2 as bootnode, should not process any message
+// - Node3: set Node1 and Node2 as bootnode, should process message meant for Node2
 #[tokio::test]
-async fn test_send_to_only_specific_receiver() {
+async fn test_mailbox_subscription() {
+
     let keypair_1 = ed25519::Keypair::generate();
     let address_1 = keypair_1.public().to_bytes();
 
     let keypair_2 = ed25519::Keypair::generate();
     let address_2 = keypair_2.public().to_bytes();
 
-    let keypair_3 = ed25519::Keypair::generate();
+    let mut keypair_3 = ed25519::Keypair::generate();
+
+    // generate new node 3 until it is a close peer of node 2
+    while !is_close_peer(keypair_2.public(), keypair_3.public()) {
+        keypair_3 = ed25519::Keypair::generate();
+    }
+    
     let address_3 = keypair_3.public().to_bytes(); 
 
     let (node_1, _message_receiver_1) = node(
@@ -179,26 +188,33 @@ async fn test_send_to_only_specific_receiver() {
     )
     .await;
 
-    let mut sending_limit = 10;
+    let mut sending_limit = 20;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
+
+    let message = create_sync_req(1);
 
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_hotstuff_rs_msg(address_2, create_sync_req(1));
+                node_1.send_hotstuff_rs_msg(address_2, message.clone());
 
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                let node3_received = message_receiver_3.try_recv().is_ok();
-                if node3_received {
-                    panic!("Wrong recipient");
-                }
+                let node3_received = message_receiver_3.try_recv();
+                if node3_received.is_ok() {
+                    let (msg_orgin, msg) = node3_received.unwrap();
+                    let msg_vec: Vec<u8> = msg.into();
+                    assert_eq!(msg_vec, message.try_to_vec().unwrap());
+                    assert_eq!(msg_orgin, address_1);
+                    return
+                }       
             }
         }
     }
+    panic!("Node3 did not receive mailbox message!")
 }
 
 // - Network: Node1, Node2, Node3
@@ -447,4 +463,18 @@ pub async fn node(
     .unwrap();
 
     (peer, rx)
+}
+
+fn is_close_peer(public_key1: ed25519::PublicKey, public_key2: ed25519::PublicKey) -> bool {
+    let peer_1: PublicKey = public_key1.into();
+    let peer_2: PublicKey = public_key2.into();
+    let peer_1 = peer_1.to_peer_id();
+    let peer_2 = peer_2.to_peer_id();
+    let peer_1_key = KBucketKey::from(peer_1);
+    let peer_2_key = KBucketKey::from(peer_2);
+    // returns the distance in base2 logarithm ranging from 0 - 256
+    let distance = KBucketKey::distance(&peer_1_key, &peer_2_key)
+        .ilog2()
+        .unwrap_or(0);
+    distance < 255
 }
