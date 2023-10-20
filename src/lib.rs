@@ -26,18 +26,18 @@
 //!     kademlia_protocol_name // "/pchain_p2p/1.0.0"
 //! };
 //!
-//! // 2. Create a message handler 
+//! // 2. Create message handlers 
 //! let (tx, rx) = mpsc::channel();
 //! let message_sender = tx.clone();
 //! let message_handler = move |msg_orgin: [u8;32], msg: Message| {
 //!     // processing the message...
 //!     let _ = message_sender.send((msg_origin, msg));
 //! };
+//! let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
+//! message_handlers.push(Box::new(message_handler));
 //!  
 //! // 3. Start P2P network.
-//! let peer = PeerBuilder::new(config)
-//!     .on_receive_msg(message_handler)
-//!     .build()
+//! let peer = Peer::start(config, message_handlers)
 //!     .await
 //!     .unwrap();
 //! 
@@ -52,8 +52,6 @@ pub mod behaviour;
 pub mod config;
 
 pub mod conversions;
-
-pub mod engine;
 
 pub mod messages;
 

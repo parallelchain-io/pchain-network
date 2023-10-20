@@ -8,37 +8,59 @@
 //! It starts a ParallelChain Network peer and keeps the peer alive -- the peer stops working when the
 //! thread is dropped.
 //!
-//! To start a pchain-network peer, the users start with an empty [PeerBuilder]. A [Config] instance, which
-//! contains the peer's keypair, or other deployment-specific parameters, such as listening ports, bootstrap
-//! nodes etc, will be passed into the [PeerBuilder]. Then, the users need to pass in the handlers for processing
-//! the [Message]. Lastly, building the [PeerBuilder] will return an instance of [Peer].
-//!
-//!
+//! To start a pchain-network peer, users pass a [Config] instance and message handlers into Peer::start().
+//! [Config] contains the peer's keypair, or other deployment-specific parameters, such as listening ports, bootstrap nodes etc. 
+//! Then, the users need define the message handlers for processing the [Message]. 
+//! Starting Peer will return a mpsc Sender for delivering PeerAction commands to the thread. 
+//! 
 //! Example:
 //!
 //! // 1. Define the configurations
 //! let config = Config {...}
 //!
-//! // 2. Build the instance of Peer
-//! let peer = PeerBuilder::new(config)
-//!     .on_receive_msg(msg_handler1)
-//!     .on_receive_msg(msg_handler2)
-//!     .build();
-//!
-//! // 3. Broadcast or send the message
+//! // 2. Define the message handlers 
+//! let(tx,rx) = mpsc::channel();
+//! let message_sender = tx.clone();
+//! let message_handler = move |msg_origin: [u8;32], msg: Message| {
+//!     let _ = message_sender.send((msg_origin, msg));
+//! };
+//! let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
+//! message_handlers.push(Box::new(message_handler));
+//! 
+//! // 3. Start the peer
+//! let peer = Peer::start(config, message_handlers).await;
+//! 
+//! // 4. Send PeerAction commands
 //! peer.broadcast_mempool_msg(txn);
+//! 
 
-use pchain_types::blockchain::TransactionV1;
-use pchain_types::cryptography::PublicAddress;
+use futures::StreamExt;
 use tokio::task::JoinHandle;
+use libp2p::{
+    core::{muxing::StreamMuxerBox, transport::Boxed},
+    dns::TokioDnsConfig,
+    gossipsub,
+    identify, identity, noise,
+    swarm::{SwarmBuilder, SwarmEvent},
+    tcp, yamux, PeerId, Transport,
+};
+use libp2p_mplex::MplexConfig;
+use pchain_types::cryptography::PublicAddress;
+use pchain_types::blockchain::TransactionV1;
+use std::net::Ipv4Addr;
+use std::time::Duration;
 
-use crate::config::Config;
-use crate::messages::{DroppedTxnMessage, Message, Topic};
+use crate::{
+    behaviour::{Behaviour, NetworkEvent},
+    conversions,
+    messages::{DroppedTxnMessage,Message, Topic},
+    config::Config,
+};
+
 
 
 pub struct Peer {
-    /// Network handle for the [tokio::task] which is the main thread for the
-    /// p2p network (see [crate::engine]).
+    /// Network handle for the [tokio::task] which is the main thread for the p2p network 
     pub(crate) handle: JoinHandle<()>,
 
     /// mpsc sender for delivering messages to the p2p network.
@@ -48,7 +70,7 @@ pub struct Peer {
 impl Peer {
     /// Constructs a [Peer] from the given configuration and handlers, and start the thread for the p2p network.
     pub async fn start(config: Config, handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> Peer {
-        let (handle, sender) = crate::engine::start(config, handlers).await.unwrap();
+        let (handle, sender) = engine_start(config, handlers).await.unwrap();
         Peer {
             handle,
             sender,
@@ -94,10 +116,226 @@ impl Drop for Peer {
     }
 }
 
-/// [PeerAction] defines commands to other pchain-network peers which includes publishing messages
+/// [PeerAction] defines commands to the internal thread which includes publishing messages
 /// and shutting down the network when the peer is dropped.
 pub(crate) enum PeerAction {
     Publish(Topic, Message),
     Shutdown,
 }
 
+/// The process starts by loading the network configuration to bring up the P2P network. Then,
+/// it spawns an asynchronous [tokio] task and enters the main event loop.
+///
+/// In the event loop, it waits for:
+/// 1. [NetworkEvent]
+/// 2. [Commands](PeerAction) from application for sending messages or termination
+/// 3. a periodic interval to discover peers in the network
+///
+/// ### 1. NetworkEvent Handling
+///
+/// Upon receiving the Identify event, the information of the new peer will be added to the
+/// routing table.
+///
+/// Upon receiving the Gossip event, the message will be deserailized to (Message)[crate::messages::Message]
+/// if the peer is subscribed to the topic. The message will then be passed in the message handlers defined
+/// by the user.
+///
+/// Upon receiving the ConnectionClosed event, peer information will be removed from the
+/// routing table.
+///
+/// ### 2. PeerAction Handling
+///
+/// Upon receiving a (Publish)[PeerAction::Publish] command, the peer will publish the message to its
+/// connected peers. The peer will process the message directly if it is a [Topic::HotStuffRsSend] message
+/// directed to the peer's public address.
+///
+/// Upon receiving a (Shutdown)[PeerAction::Shutdown] command, the process will exit the loop and terminate
+/// the thread.
+///
+async fn engine_start(config: Config, message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) 
+    -> Result<(JoinHandle<()>,tokio::sync::mpsc::Sender<PeerAction>), PeerStartError> {
+    let local_keypair = config.keypair;
+    let local_public_address: PublicAddress = local_keypair.public().to_bytes();
+    let local_peer_id = identity::Keypair::from(local_keypair.clone())
+        .public()
+        .to_peer_id();
+
+    log::info!("Local PeerId: {:?}", local_peer_id);
+
+    // 1. Instantiate Swarm
+    let transport = build_transport(local_keypair.clone()).await?;
+    let behaviour = Behaviour::new(
+        local_public_address,
+        &local_keypair,
+        config.kademlia_protocol_name,
+    );
+
+    let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
+    let multiaddr = conversions::multi_addr(
+        Ipv4Addr::new(0, 0, 0, 0),
+        config.listening_port
+    );
+    swarm.listen_on(multiaddr)?;
+
+    // 2. Connection to bootstrap nodes
+    if !config.boot_nodes.is_empty() {
+        config.boot_nodes.iter().for_each(|peer_info| {
+            let multiaddr = conversions::multi_addr(peer_info.1, peer_info.2);
+            if let Ok(peer_id) = &conversions::PublicAddress::new(peer_info.0).try_into() {
+                swarm
+                .behaviour_mut()
+                .add_address(peer_id, multiaddr);
+            }
+        });
+    }
+
+    // 3. Subscribe to Topic
+    swarm
+        .behaviour_mut()
+        .subscribe(config.topics_to_subscribe.clone())?;
+
+    // 4. Start p2p networking
+    let (sender, mut receiver) =
+        tokio::sync::mpsc::channel::<PeerAction>(config.outgoing_msgs_buffer_capacity);
+    let mut discover_tick =
+        tokio::time::interval(Duration::from_secs(config.peer_discovery_interval));
+
+    let network_thread_handle = tokio::task::spawn(async move {
+        loop {
+            // 4.1 Wait for the following events:
+            let (peer_command, event) = tokio::select! {
+                biased;
+                // Receive a PeerAction from application
+                peer_command = receiver.recv() => {
+                    (peer_command, None)
+                },
+                // Receive a NetworkEvent
+                event = swarm.select_next_some() => {
+                    (None, Some(event))
+                },
+                // Time for network discovery
+                _ = discover_tick.tick() => {
+                    // Perform a random walk on DHT
+                    swarm.behaviour_mut().random_walk();
+                    (None, None)
+                },
+            };
+
+            // 4.2 Deliver messages when a PeerAction::Publish from the application is received
+            // and shutdown Peer when a PeerAction::Shutdown from the application is received
+            if let Some(peer_command) = peer_command {
+                match peer_command {
+                    PeerAction::Publish(topic, message) => {
+                        log::info!("Publishing (Topic: {:?})", topic);
+                        if topic == Topic::HotStuffRsSend(local_public_address) {
+                            // send to myself
+                            message_handlers.iter()
+                            .for_each(|handler| handler(local_public_address, message.clone()));
+                        } 
+                        else if let Err(e) = swarm.behaviour_mut().publish(topic, message) {
+                            log::debug!("Failed to publish the message. {:?}", e);
+                        }
+                    }
+                    PeerAction::Shutdown => {
+                        log::info!("Shutting down the Peer...");
+                        break;
+                    }
+                }
+            }
+
+            // 4.3 Deliver messages when a NetworkEvent is received
+            if let Some(event) = event {
+                match event {
+                    SwarmEvent::Behaviour(NetworkEvent::Gossip(gossipsub::Event::Message {
+                        message,
+                        ..
+                    })) => {
+                        if let Some(src_peer_id) = &message.source {
+                            if let Ok(public_addr) =
+                                conversions::PublicAddress::try_from(*src_peer_id)
+                            {
+                                let public_addr: PublicAddress = public_addr.into();
+                                if swarm.behaviour().is_subscribed(&message) {
+                                    // Send it to ourselves if we subscribed to this topic
+                                    if let Ok(message) =
+                                        Message::try_from((message, local_public_address))
+                                    {
+                                        message_handlers.iter().for_each(|handler| {
+                                            handler(public_addr, message.clone())
+                                        });
+                                    }                                  
+                                }
+                            }
+                        }
+                    }
+                    SwarmEvent::Behaviour(NetworkEvent::Identify(identify::Event::Received {
+                        peer_id,
+                        info,
+                    })) => {
+                        // Update routing table
+                        info.listen_addrs.iter().for_each(|a| {
+                            swarm.behaviour_mut().add_address(&peer_id, a.clone());
+                        });
+                    }
+                    SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                        swarm.behaviour_mut().remove_peer(&peer_id);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+
+    Ok(
+        (network_thread_handle, sender)
+    )
+}
+
+async fn build_transport(
+    keypair: identity::ed25519::Keypair,
+) -> std::io::Result<Boxed<(PeerId, StreamMuxerBox)>> {
+    let transport = {
+        let tcp = libp2p::tcp::tokio::Transport::new(tcp::Config::new().nodelay(true));
+        TokioDnsConfig::system(tcp)?
+    };
+
+    let upgrade =
+        libp2p::core::upgrade::SelectUpgrade::new(yamux::Config::default(), MplexConfig::default());
+
+    Ok(transport
+        .upgrade(libp2p::core::upgrade::Version::V1)
+        .authenticate(noise::Config::new(&keypair.into()).unwrap())
+        .multiplex(upgrade)
+        .timeout(std::time::Duration::from_secs(20))
+        .boxed())
+}
+
+#[derive(Debug)]
+pub enum PeerStartError {
+    /// Failed to read from system configuration path
+    SystemConfigError(std::io::Error),
+
+    /// Failed to subscribe to a topic on gossipsub
+    SubscriptionError(libp2p::gossipsub::SubscriptionError),
+
+    /// Swarm failed to listen on an unsupported address
+    UnsupportedAddressError(libp2p::TransportError<std::io::Error>),
+}
+
+impl From<std::io::Error> for PeerStartError {
+    fn from(error: std::io::Error) -> PeerStartError {
+        PeerStartError::SystemConfigError(error)
+    }
+}
+
+impl From<libp2p::gossipsub::SubscriptionError> for PeerStartError {
+    fn from(error: libp2p::gossipsub::SubscriptionError) -> PeerStartError {
+        PeerStartError::SubscriptionError(error)
+    }
+}
+
+impl From<libp2p::TransportError<std::io::Error>> for PeerStartError {
+    fn from(error: libp2p::TransportError<std::io::Error>) -> PeerStartError {
+        PeerStartError::UnsupportedAddressError(error)
+    }
+}

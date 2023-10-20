@@ -96,8 +96,7 @@ impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddr
                 let message = DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns)?;
                 Ok(message)
             }
-    }
-
+        }
     }
 }
 
