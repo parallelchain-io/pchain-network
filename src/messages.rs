@@ -13,11 +13,15 @@
 //!
 
 use borsh::{BorshSerialize, BorshDeserialize};
-use libp2p::gossipsub::IdentTopic;
+use libp2p::gossipsub::{IdentTopic, TopicHash};
 use pchain_types::{
     blockchain::TransactionV1,
     cryptography::{PublicAddress, Sha256Hash},
     serialization::Serializable,
+};
+
+use crate::{config,
+    messages::Topic::{HotStuffRsBroadcast,HotStuffRsSend,Mempool,DroppedTxns}
 };
 
 /// Hash of the message topic.
@@ -50,6 +54,7 @@ impl From<Topic> for IdentTopic {
     }
 }
 
+
 /// [Message] are structured messages that are sent between ParallelChain Network Peers.
 #[derive(Clone, BorshSerialize, BorshDeserialize)]
 pub enum Message {
@@ -68,25 +73,60 @@ impl From<Message> for Vec<u8> {
     }
 }
 
-impl TryFrom<libp2p::gossipsub::Message> for Message {
-    type Error = std::io::Error;
+impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddress)> for Message {
+    type Error = MessageError;
 
-    fn try_from(message: libp2p::gossipsub::Message) -> Result<Message, std::io::Error> {
+    fn try_from((message , local_public_address): (libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddress)) 
+    -> Result<Self, Self::Error> {
         let (topic_hash, data) = (message.topic, message.data);
-        match topic_hash.as_str() {
-            "consensus" => {
-                hotstuff_rs::messages::Message::deserialize(&mut data.as_slice()).map(Message::HotStuffRs)
+        let mut data = data.as_slice();
+        
+        let topic = identify_topics(topic_hash, local_public_address)?;
+        
+        match topic {
+            HotStuffRsBroadcast | HotStuffRsSend(_) => {
+                let message = hotstuff_rs::messages::Message::deserialize(&mut data).map(Message::HotStuffRs)?;
+                Ok(message)
+            },
+            Mempool => {
+                let message = pchain_types::blockchain::TransactionV1::deserialize(&mut data).map(Message::Mempool)?;
+                Ok(message)
+            },
+            DroppedTxns => {
+                let message = DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns)?;
+                Ok(message)
             }
-            "mempool" => {
-                pchain_types::blockchain::TransactionV1::deserialize(&mut data.as_slice()).map(Message::Mempool)
-            }
-            "droppedTx" => {
-                DroppedTxnMessage::deserialize(&mut data.as_slice()).map(Message::DroppedTxns)
-            }
-            _ => {
-                hotstuff_rs::messages::Message::deserialize(&mut data.as_slice()).map(Message::HotStuffRs)
-            }
-        }
+    }
+
+    }
+}
+
+fn identify_topics(topic_hash: TopicHash, addr: PublicAddress) -> Result<Topic, InvalidTopic> {
+    let topic = config::fullnode_topics(addr)
+        .into_iter()
+        .find(|t| t.clone().hash() == topic_hash)
+        .ok_or(InvalidTopic)?;
+    Ok(topic)
+}
+
+#[derive(Debug)]
+pub struct InvalidTopic;
+
+#[derive(Debug)]
+pub enum MessageError {
+    DeserializeError(std::io::Error),
+    InvalidTopic(InvalidTopic),
+}
+
+impl From<InvalidTopic> for MessageError {
+    fn from(error: InvalidTopic) -> MessageError {
+        MessageError::InvalidTopic(error)
+    }
+}
+
+impl From<std::io::Error> for MessageError {
+    fn from(error: std::io::Error) -> MessageError {
+        MessageError::DeserializeError(error)
     }
 }
 

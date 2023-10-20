@@ -164,7 +164,7 @@ pub(crate) async fn start(config: Config, message_handlers: Vec<Box<dyn Fn(Publi
                                 if swarm.behaviour().is_subscribed(&message) {
                                     // Send it to ourselves if we subscribed to this topic
                                     if let Ok(pchain_message) =
-                                        Message::try_from(message)
+                                        Message::try_from((message, local_public_address))
                                     {
                                         message_handlers.iter().for_each(|handler| {
                                             handler(public_addr, pchain_message.clone())
