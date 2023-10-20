@@ -30,7 +30,7 @@ impl From<PublicAddress> for pchain_types::cryptography::PublicAddress {
 }
 
 impl TryFrom<PeerId> for PublicAddress {
-    type Error = ConversionError;
+    type Error = DecodingError;
 
     fn try_from(peer_id: PeerId) -> Result<Self, Self::Error> {
         let kp = identity::PublicKey::try_decode_protobuf(&peer_id.to_bytes())?;
@@ -39,7 +39,7 @@ impl TryFrom<PeerId> for PublicAddress {
 }
 
 impl TryFrom<PublicAddress> for PeerId {
-    type Error = ConversionError;
+    type Error = PeerIdTryFromPublicAddressError;
 
     fn try_from(public_addr: PublicAddress) -> Result<Self, Self::Error> {
         let kp = ed25519::PublicKey::try_from_bytes(&public_addr.0)?;
@@ -49,20 +49,20 @@ impl TryFrom<PublicAddress> for PeerId {
 }
 
 #[derive(Debug)]
-pub enum ConversionError {
+pub enum PeerIdTryFromPublicAddressError {
     OtherVariantError(OtherVariantError),
     DecodingError(DecodingError),
 }
 
-impl From<OtherVariantError> for ConversionError {
-    fn from(error: OtherVariantError) -> ConversionError {
-        ConversionError::OtherVariantError(error)
+impl From<OtherVariantError> for PeerIdTryFromPublicAddressError {
+    fn from(error: OtherVariantError) -> PeerIdTryFromPublicAddressError {
+        PeerIdTryFromPublicAddressError::OtherVariantError(error)
     }
 }
 
-impl From<DecodingError> for ConversionError {
-    fn from(error: DecodingError) -> ConversionError {
-        ConversionError::DecodingError(error)
+impl From<DecodingError> for PeerIdTryFromPublicAddressError {
+    fn from(error: DecodingError) -> PeerIdTryFromPublicAddressError {
+        PeerIdTryFromPublicAddressError::DecodingError(error)
     }
 }
 
@@ -88,7 +88,7 @@ mod test {
         assert!(result.is_ok());
 
         // Convert it back to PeerId
-        let result: Result<PeerId, ConversionError> = result.unwrap().try_into();
+        let result: Result<PeerId, PeerIdTryFromPublicAddressError> = result.unwrap().try_into();
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_peerid);
     }

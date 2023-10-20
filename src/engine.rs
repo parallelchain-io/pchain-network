@@ -8,7 +8,7 @@
 //!
 //! In the event loop, it waits for:
 //! 1. [NetworkEvent]
-//! 2. [Commands](EngineCommand) from application for sending messages or termination
+//! 2. [Commands](PeerAction) from application for sending messages or termination
 //! 3. a periodic interval to discover peers in the network
 //!
 //! ### 1. NetworkEvent Handling
@@ -23,13 +23,13 @@
 //! Upon receiving the ConnectionClosed event, peer information will be removed from the
 //! routing table.
 //!
-//! ### 2. EngineCommand Handling
+//! ### 2. PeerAction Handling
 //!
-//! Upon receiving a (Publish)[EngineCommand::Publish] command, the peer will publish the message to its
+//! Upon receiving a (Publish)[PeerAction::Publish] command, the peer will publish the message to its
 //! connected peers. The peer will process the message directly if it is a [Topic::HotStuffRsSend] message
 //! directed to the peer's public address.
 //!
-//! Upon receiving a (Shutdown)[EngineCommand::Shutdown] command, the process will exit the loop and terminate
+//! Upon receiving a (Shutdown)[PeerAction::Shutdown] command, the process will exit the loop and terminate
 //! the thread.
 //!
 
@@ -52,14 +52,14 @@ use crate::{
     behaviour::{Behaviour, NetworkEvent},
     conversions,
     messages::{Message, Topic},
-    peer::EngineCommand,
+    peer::PeerAction,
     config::Config,
 };
 
 
 /// [start] p2p networking peer and return the handle of this process.
 pub(crate) async fn start(config: Config, message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) 
-    -> Result<(JoinHandle<()>,tokio::sync::mpsc::Sender<EngineCommand>), EngineStartError> {
+    -> Result<(JoinHandle<()>,tokio::sync::mpsc::Sender<PeerAction>), PeerStartError> {
     let local_keypair = config.keypair;
     let local_public_address: PublicAddress = local_keypair.public().to_bytes();
     let local_peer_id = identity::Keypair::from(local_keypair.clone())
@@ -102,18 +102,18 @@ pub(crate) async fn start(config: Config, message_handlers: Vec<Box<dyn Fn(Publi
 
     // 4. Start p2p networking
     let (sender, mut receiver) =
-        tokio::sync::mpsc::channel::<EngineCommand>(config.outgoing_msgs_buffer_capacity);
+        tokio::sync::mpsc::channel::<PeerAction>(config.outgoing_msgs_buffer_capacity);
     let mut discover_tick =
         tokio::time::interval(Duration::from_secs(config.peer_discovery_interval));
 
     let network_thread_handle = tokio::task::spawn(async move {
         loop {
             // 4.1 Wait for the following events:
-            let (engine_command, event) = tokio::select! {
+            let (peer_command, event) = tokio::select! {
                 biased;
-                // Receive an EngineCommand from application
-                engine_command = receiver.recv() => {
-                    (engine_command, None)
+                // Receive a PeerAction from application
+                peer_command = receiver.recv() => {
+                    (peer_command, None)
                 },
                 // Receive a NetworkEvent
                 event = swarm.select_next_some() => {
@@ -127,11 +127,11 @@ pub(crate) async fn start(config: Config, message_handlers: Vec<Box<dyn Fn(Publi
                 },
             };
 
-            // 4.2 Deliver messages when an EngineCommand::Publish from the application is received
-            // and shutdown engine when an EngineCommand::Shutdown from the application is received
-            if let Some(engine_command) = engine_command {
-                match engine_command {
-                    EngineCommand::Publish(topic, message) => {
+            // 4.2 Deliver messages when a PeerAction::Publish from the application is received
+            // and shutdown engine when a PeerAction::Shutdown from the application is received
+            if let Some(peer_command) = peer_command {
+                match peer_command {
+                    PeerAction::Publish(topic, message) => {
                         log::info!("Publishing (Topic: {:?})", topic);
                         if topic == Topic::HotStuffRsSend(local_public_address) {
                             // send to myself
@@ -142,7 +142,7 @@ pub(crate) async fn start(config: Config, message_handlers: Vec<Box<dyn Fn(Publi
                             log::debug!("Failed to publish the message. {:?}", e);
                         }
                     }
-                    EngineCommand::Shutdown => {
+                    PeerAction::Shutdown => {
                         log::info!("Shutting down the engine...");
                         break;
                     }
@@ -163,11 +163,11 @@ pub(crate) async fn start(config: Config, message_handlers: Vec<Box<dyn Fn(Publi
                                 let public_addr: PublicAddress = public_addr.into();
                                 if swarm.behaviour().is_subscribed(&message) {
                                     // Send it to ourselves if we subscribed to this topic
-                                    if let Ok(pchain_message) =
+                                    if let Ok(message) =
                                         Message::try_from((message, local_public_address))
                                     {
                                         message_handlers.iter().for_each(|handler| {
-                                            handler(public_addr, pchain_message.clone())
+                                            handler(public_addr, message.clone())
                                         });
                                     }                                  
                                 }
@@ -217,7 +217,7 @@ async fn build_transport(
 }
 
 #[derive(Debug)]
-pub enum EngineStartError {
+pub enum PeerStartError {
     /// Failed to read from system configuration path
     SystemConfigError(std::io::Error),
 
@@ -228,20 +228,20 @@ pub enum EngineStartError {
     UnsupportedAddressError(libp2p::TransportError<std::io::Error>),
 }
 
-impl From<std::io::Error> for EngineStartError {
-    fn from(error: std::io::Error) -> EngineStartError {
-        EngineStartError::SystemConfigError(error)
+impl From<std::io::Error> for PeerStartError {
+    fn from(error: std::io::Error) -> PeerStartError {
+        PeerStartError::SystemConfigError(error)
     }
 }
 
-impl From<libp2p::gossipsub::SubscriptionError> for EngineStartError {
-    fn from(error: libp2p::gossipsub::SubscriptionError) -> EngineStartError {
-        EngineStartError::SubscriptionError(error)
+impl From<libp2p::gossipsub::SubscriptionError> for PeerStartError {
+    fn from(error: libp2p::gossipsub::SubscriptionError) -> PeerStartError {
+        PeerStartError::SubscriptionError(error)
     }
 }
 
-impl From<libp2p::TransportError<std::io::Error>> for EngineStartError {
-    fn from(error: libp2p::TransportError<std::io::Error>) -> EngineStartError {
-        EngineStartError::UnsupportedAddressError(error)
+impl From<libp2p::TransportError<std::io::Error>> for PeerStartError {
+    fn from(error: libp2p::TransportError<std::io::Error>) -> PeerStartError {
+        PeerStartError::UnsupportedAddressError(error)
     }
 }

@@ -388,7 +388,7 @@ async fn test_stopped_node() {
         vec![]
     ).await;
 
-    // Stop node by EngineCommand::Shutdown
+    // Stop node by PeerAction::Shutdown
     drop(node_2);
 
     let mut sending_limit = 10;

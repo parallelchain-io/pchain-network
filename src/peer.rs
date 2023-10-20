@@ -39,38 +39,38 @@ use crate::messages::{DroppedTxnMessage, Message, Topic};
 pub struct Peer {
     /// Network handle for the [tokio::task] which is the main thread for the
     /// p2p network (see [crate::engine]).
-    pub(crate) engine: JoinHandle<()>,
+    pub(crate) handle: JoinHandle<()>,
 
     /// mpsc sender for delivering messages to the p2p network.
-    pub(crate) to_engine: tokio::sync::mpsc::Sender<EngineCommand>,
+    pub(crate) sender: tokio::sync::mpsc::Sender<PeerAction>,
 }
 
 impl Peer {
     /// Constructs a [Peer] from the given configuration and handlers, and start the thread for the p2p network.
     pub async fn start(config: Config, handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> Peer {
-        let (engine, to_engine) = crate::engine::start(config, handlers).await.unwrap();
+        let (handle, sender) = crate::engine::start(config, handlers).await.unwrap();
         Peer {
-            engine,
-            to_engine,
+            handle,
+            sender,
         }
     }
 
     pub fn broadcast_mempool_msg(&self, txn: TransactionV1) {
-        let _ = self.to_engine.try_send(EngineCommand::Publish(
+        let _ = self.sender.try_send(PeerAction::Publish(
             Topic::Mempool,
             Message::Mempool(txn),
         ));
     }
 
     pub fn broadcast_dropped_tx_msg(&self, msg: DroppedTxnMessage) {
-        let _ = self.to_engine.try_send(EngineCommand::Publish(
+        let _ = self.sender.try_send(PeerAction::Publish(
             Topic::DroppedTxns,
             Message::DroppedTxns(msg),
         ));
     }
 
     pub fn broadcast_hotstuff_rs_msg(&self, msg: hotstuff_rs::messages::Message) {
-        let _ = self.to_engine.try_send(EngineCommand::Publish(
+        let _ = self.sender.try_send(PeerAction::Publish(
             Topic::HotStuffRsBroadcast,
             Message::HotStuffRs(msg),
         ));
@@ -81,7 +81,7 @@ impl Peer {
         address: PublicAddress,
         msg: hotstuff_rs::messages::Message,
     ) {
-        let _ = self.to_engine.try_send(EngineCommand::Publish(
+        let _ = self.sender.try_send(PeerAction::Publish(
             Topic::HotStuffRsSend(address),
             Message::HotStuffRs(msg),
         ));
@@ -90,13 +90,13 @@ impl Peer {
 
 impl Drop for Peer {
     fn drop(&mut self) {
-        let _ = self.to_engine.try_send(EngineCommand::Shutdown);
+        let _ = self.sender.try_send(PeerAction::Shutdown);
     }
 }
 
-/// [EngineCommand] defines commands to other pchain-network peers which includes publishing messages
+/// [PeerAction] defines commands to other pchain-network peers which includes publishing messages
 /// and shutting down the network when the peer is dropped.
-pub(crate) enum EngineCommand {
+pub(crate) enum PeerAction {
     Publish(Topic, Message),
     Shutdown,
 }
