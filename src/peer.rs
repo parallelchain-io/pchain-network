@@ -75,8 +75,8 @@ impl Peer {
 /// 3. Spawns an asynchronous [tokio] task and enters the main event loop, returning a mpsc Sender used for sending 
 /// [PeerCommand] to the internal thread.
     pub async fn start(config: Config, handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> Result<Peer, PeerStartError> {
-        let swarm = set_up_transport(&config).await?;
-        let swarm = establish_network_connections(swarm, &config)?;
+        let mut swarm = set_up_transport(&config).await?;
+        swarm = establish_network_connections(swarm, &config)?;
         let (handle, sender) = main_loop(swarm, &config, handlers)?;
         Ok(
             Peer {
@@ -263,7 +263,7 @@ fn main_loop(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, message_handl
                 }
             }
 
-            // 3. Deliver messages when a NetworkEvent is received
+            // 3. Forward subscribed messages to Message Handlers when a NetworkEvent is received
             if let Some(event) = event {
                 match event {
                     SwarmEvent::Behaviour(NetworkEvent::Gossip(gossipsub::Event::Message {

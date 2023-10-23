@@ -13,7 +13,7 @@
 //!
 
 use borsh::{BorshSerialize, BorshDeserialize};
-use libp2p::gossipsub::{IdentTopic, TopicHash};
+use libp2p::gossipsub::IdentTopic;
 use pchain_types::{
     blockchain::TransactionV1,
     cryptography::{PublicAddress, Sha256Hash},
@@ -81,7 +81,10 @@ impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddr
         let (topic_hash, data) = (message.topic, message.data);
         let mut data = data.as_slice();
         
-        let topic = identify_topics(topic_hash, local_public_address)?;
+        let topic = config::fullnode_topics(local_public_address)
+            .into_iter()
+            .find(|t| t.clone().hash() == topic_hash)
+            .ok_or(InvalidTopicError)?;
         
         match topic {
             HotStuffRsBroadcast | HotStuffRsSend(_) => {
@@ -98,14 +101,6 @@ impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddr
             }
         }
     }
-}
-
-fn identify_topics(topic_hash: TopicHash, addr: PublicAddress) -> Result<Topic, InvalidTopicError> {
-    let topic = config::fullnode_topics(addr)
-        .into_iter()
-        .find(|t| t.clone().hash() == topic_hash)
-        .ok_or(InvalidTopicError)?;
-    Ok(topic)
 }
 
 #[derive(Debug)]
