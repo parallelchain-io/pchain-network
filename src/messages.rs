@@ -100,26 +100,26 @@ impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddr
     }
 }
 
-fn identify_topics(topic_hash: TopicHash, addr: PublicAddress) -> Result<Topic, InvalidTopic> {
+fn identify_topics(topic_hash: TopicHash, addr: PublicAddress) -> Result<Topic, InvalidTopicError> {
     let topic = config::fullnode_topics(addr)
         .into_iter()
         .find(|t| t.clone().hash() == topic_hash)
-        .ok_or(InvalidTopic)?;
+        .ok_or(InvalidTopicError)?;
     Ok(topic)
 }
 
 #[derive(Debug)]
-pub struct InvalidTopic;
+pub struct InvalidTopicError;
 
 #[derive(Debug)]
 pub enum MessageConversionError {
     DeserializeError(std::io::Error),
-    InvalidTopic(InvalidTopic),
+    InvalidTopicError(InvalidTopicError),
 }
 
-impl From<InvalidTopic> for MessageConversionError {
-    fn from(error: InvalidTopic) -> MessageConversionError {
-        MessageConversionError::InvalidTopic(error)
+impl From<InvalidTopicError> for MessageConversionError {
+    fn from(error: InvalidTopicError) -> MessageConversionError {
+        MessageConversionError::InvalidTopicError(error)
     }
 }
 
