@@ -74,7 +74,7 @@ impl From<Message> for Vec<u8> {
 }
 
 impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddress)> for Message {
-    type Error = MessageError;
+    type Error = MessageConversionError;
 
     fn try_from((message , local_public_address): (libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddress)) 
     -> Result<Self, Self::Error> {
@@ -112,20 +112,20 @@ fn identify_topics(topic_hash: TopicHash, addr: PublicAddress) -> Result<Topic, 
 pub struct InvalidTopic;
 
 #[derive(Debug)]
-pub enum MessageError {
+pub enum MessageConversionError {
     DeserializeError(std::io::Error),
     InvalidTopic(InvalidTopic),
 }
 
-impl From<InvalidTopic> for MessageError {
-    fn from(error: InvalidTopic) -> MessageError {
-        MessageError::InvalidTopic(error)
+impl From<InvalidTopic> for MessageConversionError {
+    fn from(error: InvalidTopic) -> MessageConversionError {
+        MessageConversionError::InvalidTopic(error)
     }
 }
 
-impl From<std::io::Error> for MessageError {
-    fn from(error: std::io::Error) -> MessageError {
-        MessageError::DeserializeError(error)
+impl From<std::io::Error> for MessageConversionError {
+    fn from(error: std::io::Error) -> MessageConversionError {
+        MessageConversionError::DeserializeError(error)
     }
 }
 
