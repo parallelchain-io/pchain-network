@@ -388,7 +388,7 @@ async fn test_stopped_node() {
         vec![]
     ).await;
 
-    // Stop node by PeerAction::Shutdown
+    // Stop node by PeerCommand::Shutdown
     drop(node_2);
 
     let mut sending_limit = 10;
@@ -442,7 +442,7 @@ pub async fn node(
     let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
     message_handlers.push(Box::new(message_handler));
 
-    let peer = Peer::start(config, message_handlers).await;
+    let peer = Peer::start(config, message_handlers).await.unwrap();
 
     (peer, rx)
 }

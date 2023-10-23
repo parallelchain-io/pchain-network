@@ -10,8 +10,8 @@
 //!
 //! To start a pchain-network peer, users pass a [Config] instance and message handlers into Peer::start().
 //! [Config] contains the peer's keypair, or other deployment-specific parameters, such as listening ports, bootstrap nodes etc. 
-//! Then, the users need define the message handlers for processing the [Message]. 
-//! Starting Peer will return a mpsc Sender for delivering PeerAction commands to the thread. 
+//! Then, the users define the message handlers for processing the [Message]. 
+//! Starting Peer will return a mpsc Sender for delivering PeerCommand to the thread. 
 //! 
 //! Example:
 //!
@@ -28,9 +28,9 @@
 //! message_handlers.push(Box::new(message_handler));
 //! 
 //! // 3. Start the peer
-//! let peer = Peer::start(config, message_handlers).await;
+//! let peer = Peer::start(config, message_handlers).await.unwrap();
 //! 
-//! // 4. Send PeerAction commands
+//! // 4. Send PeerCommand
 //! peer.broadcast_mempool_msg(txn);
 //! 
 
@@ -40,7 +40,7 @@ use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
     dns::TokioDnsConfig,
     gossipsub,
-    identify, identity, noise,
+    identify, identity::{self}, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     tcp, yamux, PeerId, Transport,
 };
@@ -63,36 +63,45 @@ pub struct Peer {
     /// Network handle for the [tokio::task] which is the main thread for the p2p network 
     pub(crate) handle: JoinHandle<()>,
 
-    /// mpsc sender for delivering messages to the p2p network.
-    pub(crate) sender: tokio::sync::mpsc::Sender<PeerAction>,
+    /// mpsc sender for delivering [PeerCommand] to the p2p network.
+    pub(crate) sender: tokio::sync::mpsc::Sender<PeerCommand>,
 }
 
 impl Peer {
-    /// Constructs a [Peer] from the given configuration and handlers, and start the thread for the p2p network.
-    pub async fn start(config: Config, handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> Peer {
-        let (handle, sender) = engine_start(config, handlers).await.unwrap();
-        Peer {
-            handle,
-            sender,
-        }
+/// Constructs a [Peer] from the given configuration and handlers and start the thread for the p2p network \
+/// 1. Load network configuration to set up transport for the P2P network. 
+/// 2. Establishes connection to the network by adding bootnodes and subscribing to message [Topic]. 
+/// 3. Spawns an asynchronous [tokio] task and enters the main event loop, returning a mpsc Sender used for sending 
+/// [PeerCommand] to the internal thread.
+///
+    pub async fn start(config: Config, handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> Result<Peer, PeerStartError> {
+        let swarm = set_up_transport(&config).await?;
+        let swarm = establish_network_connections(swarm, &config)?;
+        let (handle, sender) = main_loop(swarm, &config, handlers)?;
+        Ok(
+            Peer {
+                handle,
+                sender
+            }
+        )
     }
 
     pub fn broadcast_mempool_msg(&self, txn: TransactionV1) {
-        let _ = self.sender.try_send(PeerAction::Publish(
+        let _ = self.sender.try_send(PeerCommand::Publish(
             Topic::Mempool,
             Message::Mempool(txn),
         ));
     }
 
     pub fn broadcast_dropped_tx_msg(&self, msg: DroppedTxnMessage) {
-        let _ = self.sender.try_send(PeerAction::Publish(
+        let _ = self.sender.try_send(PeerCommand::Publish(
             Topic::DroppedTxns,
             Message::DroppedTxns(msg),
         ));
     }
 
     pub fn broadcast_hotstuff_rs_msg(&self, msg: hotstuff_rs::messages::Message) {
-        let _ = self.sender.try_send(PeerAction::Publish(
+        let _ = self.sender.try_send(PeerCommand::Publish(
             Topic::HotStuffRsBroadcast,
             Message::HotStuffRs(msg),
         ));
@@ -103,7 +112,7 @@ impl Peer {
         address: PublicAddress,
         msg: hotstuff_rs::messages::Message,
     ) {
-        let _ = self.sender.try_send(PeerAction::Publish(
+        let _ = self.sender.try_send(PeerCommand::Publish(
             Topic::HotStuffRsSend(address),
             Message::HotStuffRs(msg),
         ));
@@ -112,49 +121,21 @@ impl Peer {
 
 impl Drop for Peer {
     fn drop(&mut self) {
-        let _ = self.sender.try_send(PeerAction::Shutdown);
+        let _ = self.sender.try_send(PeerCommand::Shutdown);
     }
 }
 
-/// [PeerAction] defines commands to the internal thread which includes publishing messages
+/// [PeerCommand] defines commands to the internal thread which includes publishing messages
 /// and shutting down the network when the peer is dropped.
-pub(crate) enum PeerAction {
+pub(crate) enum PeerCommand {
     Publish(Topic, Message),
     Shutdown,
 }
 
-/// The process starts by loading the network configuration to bring up the P2P network. Then,
-/// it spawns an asynchronous [tokio] task and enters the main event loop.
-///
-/// In the event loop, it waits for:
-/// 1. [NetworkEvent]
-/// 2. [Commands](PeerAction) from application for sending messages or termination
-/// 3. a periodic interval to discover peers in the network
-///
-/// ### 1. NetworkEvent Handling
-///
-/// Upon receiving the Identify event, the information of the new peer will be added to the
-/// routing table.
-///
-/// Upon receiving the Gossip event, the message will be deserailized to (Message)[crate::messages::Message]
-/// if the peer is subscribed to the topic. The message will then be passed in the message handlers defined
-/// by the user.
-///
-/// Upon receiving the ConnectionClosed event, peer information will be removed from the
-/// routing table.
-///
-/// ### 2. PeerAction Handling
-///
-/// Upon receiving a (Publish)[PeerAction::Publish] command, the peer will publish the message to its
-/// connected peers. The peer will process the message directly if it is a [Topic::HotStuffRsSend] message
-/// directed to the peer's public address.
-///
-/// Upon receiving a (Shutdown)[PeerAction::Shutdown] command, the process will exit the loop and terminate
-/// the thread.
-///
-async fn engine_start(config: Config, message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) 
-    -> Result<(JoinHandle<()>,tokio::sync::mpsc::Sender<PeerAction>), PeerStartError> {
-    let local_keypair = config.keypair;
+/// Loads the network configuration from [Config] and build the transport for the P2P network
+async fn set_up_transport(config: &Config) -> Result<libp2p::Swarm<Behaviour>,PeerStartError> {
+    // Read network configuration 
+    let local_keypair = &config.keypair;
     let local_public_address: PublicAddress = local_keypair.public().to_bytes();
     let local_peer_id = identity::Keypair::from(local_keypair.clone())
         .public()
@@ -162,12 +143,12 @@ async fn engine_start(config: Config, message_handlers: Vec<Box<dyn Fn(PublicAdd
 
     log::info!("Local PeerId: {:?}", local_peer_id);
 
-    // 1. Instantiate Swarm
+    // Instantiate Swarm
     let transport = build_transport(local_keypair.clone()).await?;
     let behaviour = Behaviour::new(
         local_public_address,
         &local_keypair,
-        config.kademlia_protocol_name,
+        config.kademlia_protocol_name.clone(),
     );
 
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
@@ -177,7 +158,16 @@ async fn engine_start(config: Config, message_handlers: Vec<Box<dyn Fn(PublicAdd
     );
     swarm.listen_on(multiaddr)?;
 
-    // 2. Connection to bootstrap nodes
+
+
+    Ok(swarm)
+}
+
+/// Peer establishes network specific connections: 
+/// 1. Adds network bootnodes to local routing table
+/// 2. Subscribes to network specific message [Topic] 
+fn establish_network_connections(mut swarm: libp2p::Swarm<Behaviour> , config: &Config) -> Result<libp2p::Swarm<Behaviour>,PeerStartError> {
+    // Connection to bootstrap nodes
     if !config.boot_nodes.is_empty() {
         config.boot_nodes.iter().for_each(|peer_info| {
             let multiaddr = conversions::multi_addr(peer_info.1, peer_info.2);
@@ -189,23 +179,55 @@ async fn engine_start(config: Config, message_handlers: Vec<Box<dyn Fn(PublicAdd
         });
     }
 
-    // 3. Subscribe to Topic
+    // Subscribe to Topic
     swarm
         .behaviour_mut()
         .subscribe(config.topics_to_subscribe.clone())?;
+    Ok(swarm)
+}
 
+/// Spawns the Main Event loop for p2p network.
+/// It waits for:
+/// 1. [NetworkEvent]
+/// 2. [Commands](PeerCommand) from application for sending messages or termination
+/// 3. a periodic interval to discover peers in the network
+///
+/// #### 1. [NetworkEvent] Handling
+///
+/// Upon receiving the Identify event, the information of the new peer will be added to the
+/// routing table.
+///
+/// Upon receiving the Gossip event, the message will be deserailized to (Message)[crate::messages::Message]
+/// if the peer is subscribed to the topic. The message will then be passed in the message handlers defined
+/// by the user.
+///
+/// Upon receiving the ConnectionClosed event, peer information will be removed from the
+/// routing table.
+///
+/// #### 2. [PeerCommand] Handling
+///
+/// Upon receiving a (Publish)[PeerCommand::Publish] command, the peer will publish the message to its
+/// connected peers. The peer will process the message directly if it is a [Topic::HotStuffRsSend] message
+/// directed to the peer's public address.
+///
+/// Upon receiving a (Shutdown)[PeerCommand::Shutdown] command, the process will exit the loop and terminate
+/// the thread.
+/// 
+fn main_loop(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> 
+    Result<(JoinHandle<()>,tokio::sync::mpsc::Sender<PeerCommand>), PeerStartError> {
     // 4. Start p2p networking
+    let local_public_address = config.keypair.public().to_bytes();
     let (sender, mut receiver) =
-        tokio::sync::mpsc::channel::<PeerAction>(config.outgoing_msgs_buffer_capacity);
+        tokio::sync::mpsc::channel::<PeerCommand>(config.outgoing_msgs_buffer_capacity);
     let mut discover_tick =
         tokio::time::interval(Duration::from_secs(config.peer_discovery_interval));
 
     let network_thread_handle = tokio::task::spawn(async move {
         loop {
-            // 4.1 Wait for the following events:
+            // 1. Wait for the following events:
             let (peer_command, event) = tokio::select! {
                 biased;
-                // Receive a PeerAction from application
+                // Receive a PeerCommand from application
                 peer_command = receiver.recv() => {
                     (peer_command, None)
                 },
@@ -221,11 +243,11 @@ async fn engine_start(config: Config, message_handlers: Vec<Box<dyn Fn(PublicAdd
                 },
             };
 
-            // 4.2 Deliver messages when a PeerAction::Publish from the application is received
-            // and shutdown Peer when a PeerAction::Shutdown from the application is received
+            // 2. Deliver messages when a PeerCommand::Publish from the application is received
+            // and shutdown Peer when a PeerCommand::Shutdown from the application is received
             if let Some(peer_command) = peer_command {
                 match peer_command {
-                    PeerAction::Publish(topic, message) => {
+                    PeerCommand::Publish(topic, message) => {
                         log::info!("Publishing (Topic: {:?})", topic);
                         if topic == Topic::HotStuffRsSend(local_public_address) {
                             // send to myself
@@ -236,14 +258,14 @@ async fn engine_start(config: Config, message_handlers: Vec<Box<dyn Fn(PublicAdd
                             log::debug!("Failed to publish the message. {:?}", e);
                         }
                     }
-                    PeerAction::Shutdown => {
+                    PeerCommand::Shutdown => {
                         log::info!("Shutting down the Peer...");
                         break;
                     }
                 }
             }
 
-            // 4.3 Deliver messages when a NetworkEvent is received
+            // 3. Deliver messages when a NetworkEvent is received
             if let Some(event) = event {
                 match event {
                     SwarmEvent::Behaviour(NetworkEvent::Gossip(gossipsub::Event::Message {
@@ -290,6 +312,7 @@ async fn engine_start(config: Config, message_handlers: Vec<Box<dyn Fn(PublicAdd
         (network_thread_handle, sender)
     )
 }
+
 
 async fn build_transport(
     keypair: identity::ed25519::Keypair,
