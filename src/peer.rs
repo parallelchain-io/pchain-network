@@ -63,17 +63,17 @@ pub struct Peer {
     /// Network handle for the [tokio::task] which is the main thread for the p2p network 
     pub(crate) handle: JoinHandle<()>,
 
-    /// mpsc sender for delivering [PeerCommand] to the p2p network.
+    /// mpsc sender for delivering [PeerCommand] to the internal thread, commands are used to 
+    /// publish [Topic] specific messages to the p2p network.
     pub(crate) sender: tokio::sync::mpsc::Sender<PeerCommand>,
 }
 
 impl Peer {
-/// Constructs a [Peer] from the given configuration and handlers and start the thread for the p2p network \
+/// Constructs a [Peer] from the given configuration and handlers and start the thread for the p2p network 
 /// 1. Load network configuration to set up transport for the P2P network. 
 /// 2. Establishes connection to the network by adding bootnodes and subscribing to message [Topic]. 
 /// 3. Spawns an asynchronous [tokio] task and enters the main event loop, returning a mpsc Sender used for sending 
 /// [PeerCommand] to the internal thread.
-///
     pub async fn start(config: Config, handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> Result<Peer, PeerStartError> {
         let swarm = set_up_transport(&config).await?;
         let swarm = establish_network_connections(swarm, &config)?;
@@ -157,8 +157,6 @@ async fn set_up_transport(config: &Config) -> Result<libp2p::Swarm<Behaviour>,Pe
         config.listening_port
     );
     swarm.listen_on(multiaddr)?;
-
-
 
     Ok(swarm)
 }
