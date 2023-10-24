@@ -251,12 +251,12 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, me
                 match peer_command {
                     PeerCommand::Publish(topic, message) => {
                         log::info!("Publishing (Topic: {:?})", topic);
-                        if topic == Topic::HotStuffRsSend(local_public_address) {
-                            // send to myself
+                        if swarm.behaviour().is_subscribed(&topic.clone().hash()) {
+                            // Send it to ourselves if we subscribed to this topic
                             message_handlers.iter()
                             .for_each(|handler| handler(local_public_address, message.clone()));
                         } 
-                        else if let Err(e) = swarm.behaviour_mut().publish(topic, message) {
+                        if let Err(e) = swarm.behaviour_mut().publish(topic, message) {
                             log::debug!("Failed to publish the message. {:?}", e);
                         }
                     }
@@ -267,7 +267,7 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, me
                 }
             }
 
-            // 3. Forward subscribed messages to Message Handlers when a NetworkEvent is received
+            // 3. Deliver messages when a NetworkEvent is received
             if let Some(event) = event {
                 match event {
                     SwarmEvent::Behaviour(NetworkEvent::Gossip(gossipsub::Event::Message {
@@ -279,7 +279,7 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, me
                                 conversions::PublicAddress::try_from(*src_peer_id)
                             {
                                 let public_addr: PublicAddress = public_addr.into();
-                                if swarm.behaviour().is_subscribed(&message) {
+                                if swarm.behaviour().is_subscribed(&message.topic) {
                                     // Send it to ourselves if we subscribed to this topic
                                     if let Ok(message) =
                                         Message::try_from((message, local_public_address))
