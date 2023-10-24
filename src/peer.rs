@@ -42,12 +42,12 @@ use libp2p::{
     gossipsub,
     identify, identity::{self}, noise,
     swarm::{SwarmBuilder, SwarmEvent},
-    tcp, yamux, PeerId, Transport, TransportError,
+    tcp, yamux, PeerId, Transport,
 };
 use libp2p_mplex::MplexConfig;
 use pchain_types::cryptography::PublicAddress;
 use pchain_types::blockchain::TransactionV1;
-use std::{net::Ipv4Addr, io};
+use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use crate::{
@@ -63,7 +63,7 @@ pub struct Peer {
     pub(crate) handle: JoinHandle<()>,
 
     /// mpsc sender for delivering [PeerCommand] to the internal thread, commands are used to 
-    /// publish [Topic] specific messages to the p2p network.
+    /// publish messages with specific [Topic] to the p2p network.
     pub(crate) sender: tokio::sync::mpsc::Sender<PeerCommand>,
 }
 
@@ -75,13 +75,16 @@ impl Peer {
 /// 4. Spawns an asynchronous [tokio] task and enters the event handling loop, returning a mpsc Sender used for sending 
 /// [PeerCommand] to the internal thread.
     pub async fn start(config: Config, handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> Result<Peer, PeerStartError> {
+
         let mut swarm = set_up_transport(&config)
         .await
         .map_err(PeerStartError::SystemConfigError)?;
 
-        swarm = start_listening(swarm, &config)
-        .await
-        .map_err(PeerStartError::UnsupportedAddressError)?;
+        swarm.listen_on(conversions::multi_addr(
+                Ipv4Addr::new(0, 0, 0, 0), 
+                config.listening_port
+            ))
+            .map_err(PeerStartError::UnsupportedAddressError)?;
 
         swarm = establish_network_connections(swarm, &config)
         .map_err(PeerStartError::SubscriptionError)?;
@@ -160,16 +163,6 @@ async fn set_up_transport(config: &Config) -> Result<libp2p::Swarm<Behaviour>,st
         config.kademlia_protocol_name.clone(),
     );
     let swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
-    Ok(swarm)
-}
-
-/// Starts listening on the given address
-async fn start_listening(mut swarm: libp2p::Swarm<Behaviour>, config: &Config) -> Result<libp2p::Swarm<Behaviour>, TransportError<io::Error>> {
-    let multiaddr = conversions::multi_addr(
-        Ipv4Addr::new(0, 0, 0, 0),
-        config.listening_port
-    );
-    swarm.listen_on(multiaddr)?;
     Ok(swarm)
 }
 
