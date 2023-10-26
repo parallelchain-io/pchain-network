@@ -10,8 +10,8 @@
 //!
 //! To start a pchain-network peer, users pass a [Config] instance and message handlers into Peer::start().
 //! [Config] contains the peer's keypair, or other deployment-specific parameters, such as listening ports, bootstrap nodes etc. 
-//! Then, the users define the message handlers for processing the [Message]. 
-//! Starting Peer will return a mpsc Sender for delivering PeerCommand to the thread. 
+//! Users need to define the message handlers for processing the [Message]. 
+//! Starting Peer will return a Sender for delivering PeerCommand to the thread. 
 //! 
 //! Example:
 //!
@@ -68,11 +68,11 @@ pub struct Peer {
 }
 
 impl Peer {
-/// Constructs a [Peer] from the given configuration and handlers and start the thread for the p2p network 
+/// Constructs a [Peer] from the given configuration and handlers, starting the thread for the p2p network 
 /// 1. Load network configuration to set up transport for the P2P network. 
-/// 2. Peer starts listening on the given address
+/// 2. Peer starts listening on the given config address
 /// 3. Establishes connection to the network by adding bootnodes and subscribing to message [Topic]. 
-/// 4. Spawns an asynchronous [tokio] task and enters the event handling loop, returning a mpsc Sender used for sending 
+/// 4. Spawns an asynchronous [tokio] task and enters the event handling loop, returning a Sender used for sending 
 /// [PeerCommand] to the internal thread.
     pub async fn start(config: Config, handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> Result<Peer, PeerStartError> {
 

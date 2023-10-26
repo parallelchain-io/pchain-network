@@ -150,7 +150,7 @@ impl Behaviour {
         self.gossip.publish(topic.hash(), msg)
     }
 
-    /// Check if the [gossipsub::Message] is subscribed by this peer
+    /// Check if the [gossipsub::topic] is subscribed by this peer
     pub fn is_subscribed(&self, topic_hash: &TopicHash) -> bool {
         self.gossip.topics().any(|topic| topic_hash.eq(topic))
     }
