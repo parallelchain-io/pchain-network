@@ -128,11 +128,11 @@ mod test {
     #[test]
     fn test_message_topic() {
         let hotstuff_broadcast_topic = Topic::HotStuffRsBroadcast;
-        let ident_topic = IdentTopic::new("consensus".to_string());
+        let ident_topic = IdentTopic::new("hotstuff_rs".to_string());
         assert_eq!(hotstuff_broadcast_topic.hash(), ident_topic.hash());
 
         let hotstuff_send_topic = Topic::HotStuffRsSend([1u8; 32]);
-        let ident_topic = IdentTopic::new(base64url::encode([1u8; 32]));
+        let ident_topic = IdentTopic::new(String::from("hotstuff_rs/") + &base64url::encode([1u8; 32]));
         assert_eq!(hotstuff_send_topic.hash(), ident_topic.hash());
 
         let mempool_topic = Topic::Mempool;

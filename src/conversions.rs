@@ -12,7 +12,7 @@
 //!     - TryFrom<([libp2p::gossipsub::Message], [pchain_types::cryptography::PublicAddress])> for [Message]
 
 use libp2p::identity::{self, ed25519, DecodingError, OtherVariantError, PeerId};
-use libp2p::Multiaddr;
+use libp2p::{Multiaddr, kad::KBucketKey};
 use std::net::Ipv4Addr;
 use borsh::BorshDeserialize;
 
@@ -23,7 +23,7 @@ use crate::messages::{
 };
 use crate::config::fullnode_topics;
 
-
+const MAX_MAILBOX_DISTANCE: u32 = 255;
 /// PublicAddress(PublicAddress) is wrapper around [PublicAddress](pchain_types::cryptography::PublicAddress).
 pub struct PublicAddress(pchain_types::cryptography::PublicAddress);
 
@@ -133,6 +133,19 @@ impl From<std::io::Error> for MessageConversionError {
 pub fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
     format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
 }
+
+/// Check the distance between 2 peers. Subscribe to new peer's mailbox topic
+/// if the distance is below [MAX_MAILBOX_DISTANCE]
+pub(crate) fn is_close_peer(peer_1: &PeerId, peer_2: &PeerId) -> bool {
+    let peer_1_key = KBucketKey::from(*peer_1);
+    let peer_2_key = KBucketKey::from(*peer_2);
+    // returns the distance in base2 logarithm ranging from 0 - 256
+    let distance = KBucketKey::distance(&peer_1_key, &peer_2_key)
+        .ilog2()
+        .unwrap_or(0);
+    distance < MAX_MAILBOX_DISTANCE
+}
+
 
 #[cfg(test)]
 

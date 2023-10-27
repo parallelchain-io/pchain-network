@@ -219,6 +219,9 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, me
     (JoinHandle<()>,tokio::sync::mpsc::Sender<PeerCommand>) {
     // 4. Start p2p networking
     let local_public_address = config.keypair.public().to_bytes();
+    let local_peer_id = identity::Keypair::from(config.keypair.clone())
+        .public()
+        .to_peer_id();
     let (sender, mut receiver) =
         tokio::sync::mpsc::channel::<PeerCommand>(config.outgoing_msgs_buffer_capacity);
     let mut discover_tick =
@@ -300,9 +303,29 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, me
                         info.listen_addrs.iter().for_each(|a| {
                             swarm.behaviour_mut().add_address(&peer_id, a.clone());
                         });
+
+                        // subscribe to mailbox topic
+                        if let Ok(addr) = conversions::PublicAddress::try_from(peer_id) {
+                            let public_addr: PublicAddress = addr.into();
+                            let topic = Topic::HotStuffRsSend(public_addr);
+                            if !swarm.behaviour().is_subscribed(&topic.clone().hash())
+                                && conversions::is_close_peer(&local_peer_id, &peer_id)
+                            {
+                                let _ = swarm.behaviour_mut().subscribe(vec![topic]);
+                            }
+                        }
                     }
                     SwarmEvent::ConnectionClosed { peer_id, .. } => {
                         swarm.behaviour_mut().remove_peer(&peer_id);
+
+                        // unsubscribe from mailbox topic
+                        if let Ok(addr) = conversions::PublicAddress::try_from(peer_id) {
+                            let public_addr: PublicAddress = addr.into();
+                            let topic = Topic::HotStuffRsSend(public_addr);
+                            if swarm.behaviour().is_subscribed(&topic.clone().hash()) {
+                                let _ = swarm.behaviour_mut().unsubscribe(vec![topic]);
+                            }
+                        }
                     }
                     _ => {}
                 }
