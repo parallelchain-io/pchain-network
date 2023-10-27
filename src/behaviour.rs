@@ -221,7 +221,6 @@ mod test {
             listening_port: 25519,
             boot_nodes: vec![],
             outgoing_msgs_buffer_capacity: 10,
-            incoming_msgs_buffer_capacity: 10,
             peer_discovery_interval: 10,
             kademlia_protocol_name: String::from("/test"),
         };
@@ -270,7 +269,7 @@ mod test {
         
         peer1.behaviour.remove_peer(&peer2.peer_id);
 
-        let peer1_added_peer2 = peer1
+        let peer1_removed_peer2 = peer1
             .behaviour
             .kad
             .kbuckets()
@@ -278,7 +277,7 @@ mod test {
                 entry.iter().find(|bucket| 
                     *bucket.node.key.preimage() == peer2.peer_id).is_some());
 
-        assert!(peer1_added_peer2.is_none());
+        assert!(peer1_removed_peer2.is_none());
     }
 
     #[test]
