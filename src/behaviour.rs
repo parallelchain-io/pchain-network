@@ -96,22 +96,10 @@ impl Behaviour {
     }
 
     fn gossipsub_config(keypair: &Keypair) -> gossipsub::Behaviour {
-        let build_msg_id = |msg: &gossipsub::Message| {
-            let mut id_str = msg.topic.to_string();
-            let src_peer_id = match msg.source {
-                Some(src) => base64url::encode(src.to_bytes()),
-                None => "none".to_string(),
-            };
-            id_str.push_str(&src_peer_id);
-            id_str.push_str(&msg.sequence_number.unwrap_or_default().to_string());
-            MessageId::from(id_str)
-        };
-
         let gossip = gossipsub::Behaviour::new(
             MessageAuthenticity::Signed(keypair.clone().into()),
             ConfigBuilder::default()
                 .max_transmit_size(MAX_TRANSMIT_SIZE * MEGABYTES) // block size is limitted to 2 MB. Multiply by factor of safety = 2.
-                .message_id_fn(build_msg_id)
                 .heartbeat_interval(Duration::from_secs(HEARTBEAT_INTERVAL))
                 .build()
                 .unwrap(),

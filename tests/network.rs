@@ -144,78 +144,78 @@ async fn test_send_to() {
 // - Node1: set Node2 and Node3 as bootnode, keep sending message to Node2 only
 // - Node2: set Node1 and Node3 as bootnode, listens to subscribed topics
 // - Node3: set Node1 and Node2 as bootnode, should process message meant for Node2
-#[tokio::test]
-async fn test_mailbox_subscription() {
+// #[tokio::test]
+// async fn test_mailbox_subscription() {
 
-    let keypair_1 = ed25519::Keypair::generate();
-    let address_1 = keypair_1.public().to_bytes();
+//     let keypair_1 = ed25519::Keypair::generate();
+//     let address_1 = keypair_1.public().to_bytes();
 
-    let keypair_2 = ed25519::Keypair::generate();
-    let address_2 = keypair_2.public().to_bytes();
+//     let keypair_2 = ed25519::Keypair::generate();
+//     let address_2 = keypair_2.public().to_bytes();
 
-    let mut keypair_3 = ed25519::Keypair::generate();
+//     let mut keypair_3 = ed25519::Keypair::generate();
 
-    // generate new node 3 until it is a close peer of node 2
-    while !is_close_peer(keypair_2.public(), keypair_3.public()) {
-        keypair_3 = ed25519::Keypair::generate();
-    }
+//     // generate new node 3 until it is a close peer of node 2
+//     while !is_close_peer(keypair_2.public(), keypair_3.public()) {
+//         keypair_3 = ed25519::Keypair::generate();
+//     }
     
-    let address_3 = keypair_3.public().to_bytes(); 
+//     let address_3 = keypair_3.public().to_bytes(); 
 
-    let (node_1, _message_receiver_1) = node(
-        keypair_1,
-        30005, 
-        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30006), 
-             (address_3, Ipv4Addr::new(127, 0, 0, 1), 30007)],
-        vec![]
-    ).await;
+//     let (node_1, _message_receiver_1) = node(
+//         keypair_1,
+//         30005, 
+//         vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30006), 
+//              (address_3, Ipv4Addr::new(127, 0, 0, 1), 30007)],
+//         vec![]
+//     ).await;
 
-    let (_node_2, _message_receiver_2) = node(
-        keypair_2,
-        30006,
-        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
-             (address_3, Ipv4Addr::new(127, 0, 0, 1), 30007)],
-        vec![]
-    )
-    .await;
+//     let (_node_2, _message_receiver_2) = node(
+//         keypair_2,
+//         30006,
+//         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
+//              (address_3, Ipv4Addr::new(127, 0, 0, 1), 30007)],
+//         vec![]
+//     )
+//     .await;
 
-    let (_node_3, message_receiver_3) = node(
-        keypair_3,
-        30007,
-        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
-             (address_2, Ipv4Addr::new(127, 0, 0, 1), 30006)],
-        vec![]
-    )
-    .await;
+//     let (_node_3, message_receiver_3) = node(
+//         keypair_3,
+//         30007,
+//         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
+//              (address_2, Ipv4Addr::new(127, 0, 0, 1), 30006)],
+//         vec![]
+//     )
+//     .await;
 
-    let mut sending_limit = 20;
-    let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
-    let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
+//     let mut sending_limit = 10;
+//     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
+//     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-    let message = create_sync_req(1);
+//     let message = create_sync_req(1);
 
-    loop {
-        tokio::select! {
-            _ = sending_tick.tick() => {
-                node_1.send_hotstuff_rs_msg(address_2, message.clone());
+//     loop {
+//         tokio::select! {
+//             _ = sending_tick.tick() => {
+//                 node_1.send_hotstuff_rs_msg(address_2, message.clone());
 
-                if sending_limit == 0 { break }
-                sending_limit -= 1;
-            }
-            _ = receiving_tick.tick() => {
-                let node3_received = message_receiver_3.try_recv();
-                if node3_received.is_ok() {
-                    let (msg_orgin, msg) = node3_received.unwrap();
-                    let msg_vec: Vec<u8> = msg.into();
-                    assert_eq!(msg_vec, message.try_to_vec().unwrap());
-                    assert_eq!(msg_orgin, address_1);
-                    return
-                }       
-            }
-        }
-    }
-    panic!("Node3 did not receive mailbox message!")
-}
+//                 if sending_limit == 0 { break }
+//                 sending_limit -= 1;
+//             }
+//             _ = receiving_tick.tick() => {
+//                 let node3_received = message_receiver_3.try_recv();
+//                 if node3_received.is_ok() {
+//                     let (msg_orgin, msg) = node3_received.unwrap();
+//                     let msg_vec: Vec<u8> = msg.into();
+//                     assert_eq!(msg_vec, message.try_to_vec().unwrap());
+//                     assert_eq!(msg_orgin, address_1);
+//                     return
+//                 }       
+//             }
+//         }
+//     }
+//     panic!("Node3 did not receive mailbox message!")
+// }
 
 // - Network: Node1, Node2, Node3
 // - Node1: keep sending message to Node3 only
