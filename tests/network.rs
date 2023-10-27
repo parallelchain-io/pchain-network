@@ -450,7 +450,6 @@ pub async fn node(
         listening_port,
         boot_nodes,
         outgoing_msgs_buffer_capacity: 8,
-        incoming_msgs_buffer_capacity: 10,
         peer_discovery_interval: 10,
         kademlia_protocol_name: String::from("/pchain_p2p/1.0.0")
     };

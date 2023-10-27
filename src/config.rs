@@ -14,7 +14,6 @@
 //!         listening_port: 25519,
 //!         boot_nodes: vec![],
 //!         outgoing_msgs_buffer_capacity: 8,
-//!         incoming_msgs_buffer_capacity: 10,
 //!         peer_discovery_interval: 10,
 //!         kademlia_protocol_name: String::from("/pchain_p2p/1.0.0"),
 //!     };
@@ -41,9 +40,6 @@ pub struct Config {
 
     /// Buffer size of outgoing messages
     pub outgoing_msgs_buffer_capacity: usize,
-
-    /// Buffer size of incoming messages
-    pub incoming_msgs_buffer_capacity: usize,
 
     /// Interval in seconds for querying the network to discover peers
     pub peer_discovery_interval: u64,

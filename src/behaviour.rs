@@ -221,7 +221,6 @@ mod test {
             listening_port: 25519,
             boot_nodes: vec![],
             outgoing_msgs_buffer_capacity: 10,
-            incoming_msgs_buffer_capacity: 10,
             peer_discovery_interval: 10,
             kademlia_protocol_name: String::from("/test"),
         };
