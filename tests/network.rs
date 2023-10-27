@@ -277,9 +277,8 @@ async fn test_sparse_messaging() {
 
 // - Network: Node1
 // - Node1: keep broadcasting subscribed message
-// - Node1: keep sending message to itself
 #[tokio::test]
-async fn test_send_and_broadcast_to_self() {
+async fn test_broadcast_to_self() {
     let keypair_1 = ed25519::Keypair::generate();
     let address_1 = keypair_1.public().to_bytes();
 
@@ -294,47 +293,66 @@ async fn test_send_and_broadcast_to_self() {
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-    let broadcast_message = create_sync_req(1);
-    let send_message = create_sync_req(2);
+    let message = create_sync_req(1);
 
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.broadcast_hotstuff_rs_msg(broadcast_message.clone());
+                node_1.broadcast_hotstuff_rs_msg(message.clone());
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
                 let node1_received = message_receiver_1.try_recv();
                 if node1_received.is_ok() {
-                    let (msg_orgin, msg) = node1_received.unwrap();
+                    let (msg_origin, msg) = node1_received.unwrap();
                     let msg_vec: Vec<u8> = msg.into();
-                    assert_eq!(msg_vec, broadcast_message.try_to_vec().unwrap());
-                    assert_eq!(msg_orgin, address_1);
-                    break
-                }
+                    assert_eq!(msg_vec, message.try_to_vec().unwrap());
+                    assert_eq!(msg_origin, address_1);
+                    return
+                } 
             }
         }
     }
+    panic!("Timeout! Failed to receive message.");
+}
 
-    message_receiver_1.try_iter().next();
+// - Network: Node1
+// - Node1: keep sending message to itself
+#[tokio::test]
+async fn test_send_to_self() {
+    let keypair_1 = ed25519::Keypair::generate();
+    let address_1 = keypair_1.public().to_bytes();
+
+    let (node_1, message_receiver_1) = node(
+        keypair_1,
+        30014, 
+        vec![],
+        vec![Topic::HotStuffRsBroadcast]
+    ).await;
+
+    let mut sending_limit = 10;
+    let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
+    let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
+
+    let message = create_sync_req(1);
 
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_hotstuff_rs_msg(address_1, send_message.clone());
+                node_1.send_hotstuff_rs_msg(address_1, message.clone());
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
                 let node1_received = message_receiver_1.try_recv();
                 if node1_received.is_ok() {
-                    let (msg_orgin, msg) = node1_received.unwrap();
+                    let (msg_origin, msg) = node1_received.unwrap();
                     let msg_vec: Vec<u8> = msg.into();
-                    assert_eq!(msg_vec, send_message.try_to_vec().unwrap());
-                    assert_eq!(msg_orgin, address_1);
+                    assert_eq!(msg_vec, message.try_to_vec().unwrap());
+                    assert_eq!(msg_origin, address_1);
                     return
-                }
+                } 
             }
         }
     }
@@ -354,15 +372,15 @@ async fn test_broadcast_different_topics() {
 
     let (node_1, _message_receiver_1) = node(
         keypair_1,
-        30014, 
-        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30015)],
+        30015, 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30016)],
         vec![Topic::Mempool]
     ).await;
 
     let (_node_2, message_receiver_2) = node(
         keypair_2,
-        30015,
-        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30014)],
+        30016,
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30015)],
         vec![Topic::HotStuffRsBroadcast],
     ).await;
 
@@ -399,15 +417,15 @@ async fn test_stopped_node() {
 
     let (node_1, _message_receiver_1) = node(
         keypair_1, 
-        30016, 
-        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30017)], 
+        30017, 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30018)], 
         vec![]
     ).await;
 
     let (node_2, message_receiver_2) = node(
         keypair_2,
-        30017,
-        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30016)],
+        30018,
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30017)],
         vec![]
     ).await;
 
