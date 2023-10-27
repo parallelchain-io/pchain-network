@@ -9,6 +9,7 @@
 //!     - From<[PublicAddress]> for [ParallelChain PublicAddress](pchain_types::cryptography::PublicAddress)
 //!     - TryFrom<PeerId> for [PublicAddress]
 //!     - TryFrom<[PublicAddress]> for [PeerId]
+//!     - TryFrom<([libp2p::gossipsub::Message], [pchain_types::cryptography::PublicAddress])> for [Message]
 
 use libp2p::identity::{self, ed25519, DecodingError, OtherVariantError, PeerId};
 use libp2p::Multiaddr;

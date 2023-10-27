@@ -269,7 +269,7 @@ mod test {
         
         peer1.behaviour.remove_peer(&peer2.peer_id);
 
-        let peer1_added_peer2 = peer1
+        let peer1_removed_peer2 = peer1
             .behaviour
             .kad
             .kbuckets()
@@ -277,7 +277,7 @@ mod test {
                 entry.iter().find(|bucket| 
                     *bucket.node.key.preimage() == peer2.peer_id).is_some());
 
-        assert!(peer1_added_peer2.is_none());
+        assert!(peer1_removed_peer2.is_none());
     }
 
     #[test]
