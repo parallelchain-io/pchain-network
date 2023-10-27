@@ -20,10 +20,6 @@ use pchain_types::{
     serialization::Serializable,
 };
 
-use crate::{config,
-    messages::Topic::{HotStuffRsBroadcast,HotStuffRsSend,Mempool,DroppedTxns}
-};
-
 /// Hash of the message topic.
 pub type MessageTopicHash = libp2p::gossipsub::TopicHash;
 
@@ -70,57 +66,6 @@ impl From<Message> for Vec<u8> {
             Message::Mempool(txn) => Serializable::serialize(&txn),
             Message::DroppedTxns(msg) => msg.try_to_vec().unwrap(),
         }
-    }
-}
-
-impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddress)> for Message {
-    type Error = MessageConversionError;
-
-    fn try_from((message , local_public_address): (libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddress)) 
-    -> Result<Self, Self::Error> {
-        let (topic_hash, data) = (message.topic, message.data);
-        let mut data = data.as_slice();
-        
-        let topic = config::fullnode_topics(local_public_address)
-            .into_iter()
-            .find(|t| t.clone().hash() == topic_hash)
-            .ok_or(InvalidTopicError)?;
-        
-        match topic {
-            HotStuffRsBroadcast | HotStuffRsSend(_) => {
-                let message = hotstuff_rs::messages::Message::deserialize(&mut data).map(Message::HotStuffRs)?;
-                Ok(message)
-            },
-            Mempool => {
-                let message = pchain_types::blockchain::TransactionV1::deserialize(&mut data).map(Message::Mempool)?;
-                Ok(message)
-            },
-            DroppedTxns => {
-                let message = DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns)?;
-                Ok(message)
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct InvalidTopicError;
-
-#[derive(Debug)]
-pub enum MessageConversionError {
-    DeserializeError(std::io::Error),
-    InvalidTopicError(InvalidTopicError),
-}
-
-impl From<InvalidTopicError> for MessageConversionError {
-    fn from(error: InvalidTopicError) -> MessageConversionError {
-        MessageConversionError::InvalidTopicError(error)
-    }
-}
-
-impl From<std::io::Error> for MessageConversionError {
-    fn from(error: std::io::Error) -> MessageConversionError {
-        MessageConversionError::DeserializeError(error)
     }
 }
 

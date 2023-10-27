@@ -13,6 +13,15 @@
 use libp2p::identity::{self, ed25519, DecodingError, OtherVariantError, PeerId};
 use libp2p::Multiaddr;
 use std::net::Ipv4Addr;
+use borsh::BorshDeserialize;
+
+use crate::messages::{
+    DroppedTxnMessage, 
+    Message,
+    Topic::{HotStuffRsBroadcast,HotStuffRsSend,Mempool,DroppedTxns}
+};
+use crate::config::fullnode_topics;
+
 
 /// PublicAddress(PublicAddress) is wrapper around [PublicAddress](pchain_types::cryptography::PublicAddress).
 pub struct PublicAddress(pchain_types::cryptography::PublicAddress);
@@ -66,6 +75,58 @@ impl From<DecodingError> for PublicAddressTryFromPeerIdError {
         PublicAddressTryFromPeerIdError::DecodingError(error)
     }
 }
+
+impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddress)> for Message {
+    type Error = MessageConversionError;
+
+    fn try_from((message , local_public_address): (libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddress)) 
+    -> Result<Self, Self::Error> {
+        let (topic_hash, data) = (message.topic, message.data);
+        let mut data = data.as_slice();
+        
+        let topic = fullnode_topics(local_public_address)
+            .into_iter()
+            .find(|t| t.clone().hash() == topic_hash)
+            .ok_or(InvalidTopicError)?;
+        
+        match topic {
+            HotStuffRsBroadcast | HotStuffRsSend(_) => {
+                let message = hotstuff_rs::messages::Message::deserialize(&mut data).map(Message::HotStuffRs)?;
+                Ok(message)
+            },
+            Mempool => {
+                let message = pchain_types::blockchain::TransactionV1::deserialize(&mut data).map(Message::Mempool)?;
+                Ok(message)
+            },
+            DroppedTxns => {
+                let message = DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns)?;
+                Ok(message)
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InvalidTopicError;
+
+#[derive(Debug)]
+pub enum MessageConversionError {
+    DeserializeError(std::io::Error),
+    InvalidTopicError(InvalidTopicError),
+}
+
+impl From<InvalidTopicError> for MessageConversionError {
+    fn from(error: InvalidTopicError) -> MessageConversionError {
+        MessageConversionError::InvalidTopicError(error)
+    }
+}
+
+impl From<std::io::Error> for MessageConversionError {
+    fn from(error: std::io::Error) -> MessageConversionError {
+        MessageConversionError::DeserializeError(error)
+    }
+}
+
 
 /// Convert ip address [std::net::Ipv4Addr] and port [u16] into MultiAddr [libp2p::Multiaddr] type
 pub fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
