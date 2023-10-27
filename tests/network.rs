@@ -2,13 +2,13 @@ use std::{net::Ipv4Addr, sync::mpsc, time::Duration};
 
 use borsh::BorshSerialize;
 use hotstuff_rs::messages::SyncRequest;
-use libp2p::identity::{ed25519::{Keypair, self}, PublicKey};
-use libp2p::kad::KBucketKey;
-use pchain_network::peer::PeerBuilder;
+use libp2p::identity::ed25519::{Keypair, self};
+use libp2p::{PeerId, kad::KBucketKey};
+use pchain_network::conversions;
+use pchain_network::peer::Peer;
 use pchain_network::{
     config::Config,
     messages::{Topic, Message},
-    peer::Peer,
 };
 use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
@@ -293,9 +293,9 @@ async fn test_sparse_messaging() {
 }
 
 // - Network: Node1
-// - Node1: keep sending message to itself only
+// - Node1: keep broadcasting subscribed message
 #[tokio::test]
-async fn test_send_to_self() {
+async fn test_broadcast_to_self() {
     let keypair_1 = ed25519::Keypair::generate();
     let address_1 = keypair_1.public().to_bytes();
 
@@ -303,7 +303,7 @@ async fn test_send_to_self() {
         keypair_1,
         30013, 
         vec![],
-        vec![]
+        vec![Topic::HotStuffRsBroadcast]
     ).await;
 
     let mut sending_limit = 10;
@@ -314,7 +314,48 @@ async fn test_send_to_self() {
 
     loop {
         tokio::select! {
-            //broadcast does not send to self
+            _ = sending_tick.tick() => {
+                node_1.broadcast_hotstuff_rs_msg(message.clone());
+                if sending_limit == 0 { break }
+                sending_limit -= 1;
+            }
+            _ = receiving_tick.tick() => {
+                let node1_received = message_receiver_1.try_recv();
+                if node1_received.is_ok() {
+                    let (msg_origin, msg) = node1_received.unwrap();
+                    let msg_vec: Vec<u8> = msg.into();
+                    assert_eq!(msg_vec, message.try_to_vec().unwrap());
+                    assert_eq!(msg_origin, address_1);
+                    return
+                } 
+            }
+        }
+    }
+    panic!("Timeout! Failed to receive message.");
+}
+
+// - Network: Node1
+// - Node1: keep sending message to itself
+#[tokio::test]
+async fn test_send_to_self() {
+    let keypair_1 = ed25519::Keypair::generate();
+    let address_1 = keypair_1.public().to_bytes();
+
+    let (node_1, message_receiver_1) = node(
+        keypair_1,
+        30014, 
+        vec![],
+        vec![Topic::HotStuffRsBroadcast]
+    ).await;
+
+    let mut sending_limit = 10;
+    let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
+    let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
+
+    let message = create_sync_req(1);
+
+    loop {
+        tokio::select! {
             _ = sending_tick.tick() => {
                 node_1.send_hotstuff_rs_msg(address_1, message.clone());
                 if sending_limit == 0 { break }
@@ -323,12 +364,12 @@ async fn test_send_to_self() {
             _ = receiving_tick.tick() => {
                 let node1_received = message_receiver_1.try_recv();
                 if node1_received.is_ok() {
-                    let (msg_orgin, msg) = node1_received.unwrap();
+                    let (msg_origin, msg) = node1_received.unwrap();
                     let msg_vec: Vec<u8> = msg.into();
                     assert_eq!(msg_vec, message.try_to_vec().unwrap());
-                    assert_eq!(msg_orgin, address_1);
+                    assert_eq!(msg_origin, address_1);
                     return
-                }
+                } 
             }
         }
     }
@@ -348,15 +389,15 @@ async fn test_broadcast_different_topics() {
 
     let (node_1, _message_receiver_1) = node(
         keypair_1,
-        30014, 
-        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30015)],
+        30015, 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30016)],
         vec![Topic::Mempool]
     ).await;
 
     let (_node_2, message_receiver_2) = node(
         keypair_2,
-        30015,
-        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30014)],
+        30016,
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30015)],
         vec![Topic::HotStuffRsBroadcast],
     ).await;
 
@@ -393,19 +434,19 @@ async fn test_stopped_node() {
 
     let (node_1, _message_receiver_1) = node(
         keypair_1, 
-        30016, 
-        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30017)], 
+        30017, 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30018)], 
         vec![]
     ).await;
 
     let (node_2, message_receiver_2) = node(
         keypair_2,
-        30017,
-        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30016)],
+        30018,
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30017)],
         vec![]
     ).await;
 
-    // Stop node by EngineCommand::Shutdown
+    // Stop node by PeerCommand::Shutdown
     drop(node_2);
 
     let mut sending_limit = 10;
@@ -444,7 +485,6 @@ pub async fn node(
         listening_port,
         boot_nodes,
         outgoing_msgs_buffer_capacity: 8,
-        incoming_msgs_buffer_capacity: 10,
         peer_discovery_interval: 10,
         kademlia_protocol_name: String::from("/pchain_p2p/1.0.0")
     };
@@ -456,20 +496,19 @@ pub async fn node(
         let _ = message_sender.send((msg_origin, msg));
     };
 
-    let peer = PeerBuilder::new(config)
-    .on_receive_msg(message_handler)
-    .build()
-    .await
-    .unwrap();
+    let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
+    message_handlers.push(Box::new(message_handler));
+
+    let peer = Peer::start(config, message_handlers).await.unwrap();
 
     (peer, rx)
 }
 
 fn is_close_peer(public_key1: ed25519::PublicKey, public_key2: ed25519::PublicKey) -> bool {
-    let peer_1: PublicKey = public_key1.into();
-    let peer_2: PublicKey = public_key2.into();
-    let peer_1 = peer_1.to_peer_id();
-    let peer_2 = peer_2.to_peer_id();
+    let public_address_1: conversions::PublicAddress = conversions::PublicAddress::new(public_key1.to_bytes());
+    let public_address_2: conversions::PublicAddress = conversions::PublicAddress::new(public_key2.to_bytes());
+    let peer_1: PeerId = public_address_1.try_into().unwrap();
+    let peer_2: PeerId = public_address_2.try_into().unwrap();
     let peer_1_key = KBucketKey::from(peer_1);
     let peer_2_key = KBucketKey::from(peer_2);
     // returns the distance in base2 logarithm ranging from 0 - 256

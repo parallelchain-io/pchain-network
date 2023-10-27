@@ -15,7 +15,7 @@ use crate::{
     messages::{Message, Topic},
 };
 use libp2p::{
-    gossipsub::{self, ConfigBuilder, MessageAuthenticity, MessageId, PublishError},
+    gossipsub::{self, ConfigBuilder, MessageAuthenticity, MessageId, PublishError, TopicHash},
     identify,
     identity::{
         ed25519::{Keypair, PublicKey},
@@ -160,7 +160,7 @@ impl Behaviour {
     }
 
     /// Check if the [gossipsub::TopicHash] is subscribed by this peer
-    pub fn is_subscribed(&self, topic_hash: &gossipsub::TopicHash) -> bool {
+    pub fn is_subscribed(&self, topic_hash: &TopicHash) -> bool {
         self.gossip.topics().any(|topic| topic_hash.eq(topic))
     }
 }
@@ -230,7 +230,6 @@ mod test {
             listening_port: 25519,
             boot_nodes: vec![],
             outgoing_msgs_buffer_capacity: 10,
-            incoming_msgs_buffer_capacity: 10,
             peer_discovery_interval: 10,
             kademlia_protocol_name: String::from("/test"),
         };
@@ -279,7 +278,7 @@ mod test {
         
         peer1.behaviour.remove_peer(&peer2.peer_id);
 
-        let peer1_added_peer2 = peer1
+        let peer1_removed_peer2 = peer1
             .behaviour
             .kad
             .kbuckets()
@@ -287,7 +286,7 @@ mod test {
                 entry.iter().find(|bucket| 
                     *bucket.node.key.preimage() == peer2.peer_id).is_some());
 
-        assert!(peer1_added_peer2.is_none());
+        assert!(peer1_removed_peer2.is_none());
     }
 
     #[test]
