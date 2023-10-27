@@ -41,8 +41,8 @@ impl Topic {
 impl From<Topic> for IdentTopic {
     fn from(topic: Topic) -> Self {
         let str = match topic {
-            Topic::HotStuffRsBroadcast => "consensus".to_string(),
-            Topic::HotStuffRsSend(addr) => base64url::encode(addr),
+            Topic::HotStuffRsBroadcast => "hotstuff_rs".to_string(),
+            Topic::HotStuffRsSend(addr) => String::from("hotstuff_rs/") + &base64url::encode(addr),
             Topic::Mempool => "mempool".to_string(),
             Topic::DroppedTxns => "droppedTx".to_string(),
         };
