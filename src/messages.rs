@@ -12,7 +12,7 @@
 //! in the pchain-network.
 //!
 
-use borsh::BorshSerialize;
+use borsh::{BorshSerialize, BorshDeserialize};
 use libp2p::gossipsub::IdentTopic;
 use pchain_types::{
     blockchain::TransactionV1,
@@ -50,8 +50,9 @@ impl From<Topic> for IdentTopic {
     }
 }
 
+
 /// [Message] are structured messages that are sent between ParallelChain Network Peers.
-#[derive(Clone)]
+#[derive(Clone, BorshSerialize, BorshDeserialize)]
 pub enum Message {
     HotStuffRs(hotstuff_rs::messages::Message),
     Mempool(TransactionV1),

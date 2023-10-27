@@ -15,7 +15,7 @@ use crate::{
     messages::{Message, Topic},
 };
 use libp2p::{
-    gossipsub::{self, ConfigBuilder, MessageAuthenticity, MessageId, PublishError},
+    gossipsub::{self, ConfigBuilder, MessageAuthenticity, MessageId, PublishError, TopicHash},
     identify,
     identity::{
         ed25519::{Keypair, PublicKey},
@@ -150,9 +150,9 @@ impl Behaviour {
         self.gossip.publish(topic.hash(), msg)
     }
 
-    /// Check if the [gossipsub::Message] is subscribed by this peer
-    pub fn is_subscribed(&self, message: &gossipsub::Message) -> bool {
-        self.gossip.topics().any(|topic| message.topic.eq(topic))
+    /// Check if the [gossipsub::TopicHash] is subscribed by this peer
+    pub fn is_subscribed(&self, topic_hash: &TopicHash) -> bool {
+        self.gossip.topics().any(|topic| topic_hash.eq(topic))
     }
 }
 
@@ -293,7 +293,7 @@ mod test {
             sequence_number: None,
             topic: mailbox_topic_hash,
         };
-        assert!(peer.behaviour.is_subscribed(&mailbox_topic_msg));
+        assert!(peer.behaviour.is_subscribed(&mailbox_topic_msg.topic));
 
         let hotstuff_rs_msg = gossipsub::Message {
             source: None,
@@ -313,7 +313,7 @@ mod test {
         let subscribed_topics: Vec<&MessageTopicHash> = peer.behaviour.gossip.topics().collect();
         assert_eq!(subscribed_topics.len(), 2); //including the initial subscribed topic
 
-        assert!(peer.behaviour.is_subscribed(&hotstuff_rs_msg));
-        assert!(!peer.behaviour.is_subscribed(&unsubscribed_msg));
+        assert!(peer.behaviour.is_subscribed(&hotstuff_rs_msg.topic));
+        assert!(!peer.behaviour.is_subscribed(&unsubscribed_msg.topic));
     }
 }

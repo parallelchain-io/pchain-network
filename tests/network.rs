@@ -3,11 +3,10 @@ use std::{net::Ipv4Addr, sync::mpsc, time::Duration};
 use borsh::BorshSerialize;
 use hotstuff_rs::messages::SyncRequest;
 use libp2p::identity::ed25519::{Keypair, self};
-use pchain_network::peer::PeerBuilder;
+use pchain_network::peer::Peer;
 use pchain_network::{
     config::Config,
     messages::{Topic, Message},
-    peer::Peer,
 };
 use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
@@ -277,9 +276,10 @@ async fn test_sparse_messaging() {
 }
 
 // - Network: Node1
-// - Node1: keep sending message to itself only
+// - Node1: keep broadcasting subscribed message
+// - Node1: keep sending message to itself
 #[tokio::test]
-async fn test_send_to_self() {
+async fn test_send_and_broadcast_to_self() {
     let keypair_1 = ed25519::Keypair::generate();
     let address_1 = keypair_1.public().to_bytes();
 
@@ -287,20 +287,20 @@ async fn test_send_to_self() {
         keypair_1,
         30013, 
         vec![],
-        vec![]
+        vec![Topic::HotStuffRsBroadcast]
     ).await;
 
     let mut sending_limit = 10;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-    let message = create_sync_req(1);
+    let broadcast_message = create_sync_req(1);
+    let send_message = create_sync_req(2);
 
     loop {
         tokio::select! {
-            //broadcast does not send to self
             _ = sending_tick.tick() => {
-                node_1.send_hotstuff_rs_msg(address_1, message.clone());
+                node_1.broadcast_hotstuff_rs_msg(broadcast_message.clone());
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
@@ -309,7 +309,29 @@ async fn test_send_to_self() {
                 if node1_received.is_ok() {
                     let (msg_orgin, msg) = node1_received.unwrap();
                     let msg_vec: Vec<u8> = msg.into();
-                    assert_eq!(msg_vec, message.try_to_vec().unwrap());
+                    assert_eq!(msg_vec, broadcast_message.try_to_vec().unwrap());
+                    assert_eq!(msg_orgin, address_1);
+                    break
+                }
+            }
+        }
+    }
+
+    message_receiver_1.try_iter().next();
+
+    loop {
+        tokio::select! {
+            _ = sending_tick.tick() => {
+                node_1.send_hotstuff_rs_msg(address_1, send_message.clone());
+                if sending_limit == 0 { break }
+                sending_limit -= 1;
+            }
+            _ = receiving_tick.tick() => {
+                let node1_received = message_receiver_1.try_recv();
+                if node1_received.is_ok() {
+                    let (msg_orgin, msg) = node1_received.unwrap();
+                    let msg_vec: Vec<u8> = msg.into();
+                    assert_eq!(msg_vec, send_message.try_to_vec().unwrap());
                     assert_eq!(msg_orgin, address_1);
                     return
                 }
@@ -389,7 +411,7 @@ async fn test_stopped_node() {
         vec![]
     ).await;
 
-    // Stop node by EngineCommand::Shutdown
+    // Stop node by PeerCommand::Shutdown
     drop(node_2);
 
     let mut sending_limit = 10;
@@ -440,11 +462,10 @@ pub async fn node(
         let _ = message_sender.send((msg_origin, msg));
     };
 
-    let peer = PeerBuilder::new(config)
-    .on_receive_msg(message_handler)
-    .build()
-    .await
-    .unwrap();
+    let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
+    message_handlers.push(Box::new(message_handler));
+
+    let peer = Peer::start(config, message_handlers).await.unwrap();
 
     (peer, rx)
 }
