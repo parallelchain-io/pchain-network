@@ -60,7 +60,7 @@ async fn test_broadcast() {
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-    let outgoing_message = Message::Mempool(base_tx(address_1));
+    let message = Message::Mempool(base_tx(address_1));
 
     loop {
         tokio::select! {
@@ -76,8 +76,8 @@ async fn test_broadcast() {
                 .find(|x| {
                     let (origin, received_msg) = x.clone();
                     let received_msg= Vec::from(received_msg);
-                    let incoming_message = Vec::from(outgoing_message.clone());
-                    (origin,received_msg) == (address_1, incoming_message)
+                    let message = Vec::from(message.clone());
+                    (origin,received_msg) == (address_1, message)
                 });
                 if node2_received.is_some() {
                     return;
@@ -117,12 +117,12 @@ async fn test_send_to() {
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-    let outgoing_message = create_sync_req(1);
+    let message = create_sync_req(1);
 
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_hotstuff_rs_msg(address_2, outgoing_message.clone());
+                node_1.send_hotstuff_rs_msg(address_2, message.clone());
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
@@ -133,8 +133,8 @@ async fn test_send_to() {
                 .find(|x| {
                     let (origin, received_msg) = x.clone();
                     let received_msg= Vec::from(received_msg);
-                    let incoming_message = outgoing_message.try_to_vec().unwrap();
-                    (origin,received_msg) == (address_1, incoming_message)
+                    let message = message.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, message)
                 });
                 if node2_received.is_some() {
                     return;
@@ -190,12 +190,12 @@ async fn test_send_to_only_specific_receiver() {
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-    let outgoing_message = create_sync_req(1);
+    let message = create_sync_req(1);
 
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_hotstuff_rs_msg(address_2, outgoing_message.clone());
+                node_1.send_hotstuff_rs_msg(address_2, message.clone());
 
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
@@ -215,8 +215,8 @@ async fn test_send_to_only_specific_receiver() {
     .find(|x| {
         let (origin, received_msg) = x.clone();
         let received_msg= Vec::from(received_msg);
-        let incoming_message = outgoing_message.try_to_vec().unwrap();
-        (origin,received_msg) == (address_1, incoming_message)
+        let message = message.try_to_vec().unwrap();
+        (origin,received_msg) == (address_1, message)
     });
 
     assert!(node2_received.is_some());
@@ -284,8 +284,8 @@ async fn test_sparse_messaging() {
                 .find(|x| {
                     let (origin, received_msg) = x.clone();
                     let received_msg= Vec::from(received_msg);
-                    let incoming_message = message_to_node1.try_to_vec().unwrap();
-                    (origin,received_msg) == (address_3, incoming_message)
+                    let message_to_node1 = message_to_node1.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_3, message_to_node1)
                 });
                 
                 let node3_received = message_receiver_3
@@ -294,8 +294,8 @@ async fn test_sparse_messaging() {
                 .find(|x| {
                     let (origin, received_msg) = x.clone();
                     let received_msg= Vec::from(received_msg);
-                    let incoming_message = message_to_node3.try_to_vec().unwrap();
-                    (origin,received_msg) == (address_1, incoming_message)
+                    let message_to_node3 = message_to_node3.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, message_to_node3)
                 });
 
                 if node1_received.is_some() && node3_received.is_some() {
@@ -345,8 +345,8 @@ async fn test_send_and_broadcast_to_self() {
                 .find(|x| {
                     let (origin, received_msg) = x.clone();
                     let received_msg= Vec::from(received_msg);
-                    let incoming_message = send_message.try_to_vec().unwrap();
-                    (origin,received_msg) == (address_1, incoming_message)
+                    let send_message = send_message.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, send_message)
                 });
 
                 let broadcast_message_received = message_receiver_1
@@ -355,8 +355,8 @@ async fn test_send_and_broadcast_to_self() {
                 .find(|x| {
                     let (origin, received_msg) = x.clone();
                     let received_msg= Vec::from(received_msg);
-                    let incoming_message = broadcast_message.try_to_vec().unwrap();
-                    (origin,received_msg) == (address_1, incoming_message)
+                    let broadcast_message = broadcast_message.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, broadcast_message)
                 });
 
                 if send_message_received.is_some() && broadcast_message_received.is_some() {
@@ -483,13 +483,31 @@ pub async fn node(
 
     let(tx,rx) = mpsc::channel();
 
+    let hotstuff_sender = tx.clone();
+    let hotstuff_handler = move |msg_origin: [u8;32], msg: Message| {
+        match msg {
+            Message::HotStuffRs(hotstuff_message) => {
+                // process hotstuff message
+                let _ = hotstuff_sender.send((msg_origin, Message::HotStuffRs(hotstuff_message)));
+            }
+            _ => {}
+        }
+    };
+
     let message_sender = tx.clone();
-    let message_handler = move |msg_origin: [u8;32], msg: Message| {
-        let _ = message_sender.send((msg_origin, msg));
+    let mempool_handler = move |msg_origin: [u8;32], msg: Message| {
+        match msg {
+            Message::Mempool(mempool_message) => {
+                // process mempool message
+                let _ = message_sender.send((msg_origin, Message::Mempool(mempool_message)));
+            }
+            _ => {}
+        }
     };
 
     let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
-    message_handlers.push(Box::new(message_handler));
+    message_handlers.push(Box::new(hotstuff_handler));
+    message_handlers.push(Box::new(mempool_handler));
 
     let peer = Peer::start(config, message_handlers).await.unwrap();
 
