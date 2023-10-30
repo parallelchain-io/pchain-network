@@ -17,13 +17,12 @@ use std::net::Ipv4Addr;
 use borsh::BorshDeserialize;
 
 use crate::messages::{
-    DroppedTxnMessage, 
     Message,
-    Topic::{HotStuffRsBroadcast,HotStuffRsSend,Mempool,DroppedTxns}
+    Topic::{HotStuffRsBroadcast,HotStuffRsSend,Mempool}
 };
 use crate::config::fullnode_topics;
 
-const MAX_MAILBOX_DISTANCE: u32 = 255;
+const MAX_REPLICA_DISTANCE: u32 = 255;
 /// PublicAddress(PublicAddress) is wrapper around [PublicAddress](pchain_types::cryptography::PublicAddress).
 pub struct PublicAddress(pchain_types::cryptography::PublicAddress);
 
@@ -99,10 +98,6 @@ impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddr
                 let message = pchain_types::blockchain::TransactionV1::deserialize(&mut data).map(Message::Mempool)?;
                 Ok(message)
             },
-            DroppedTxns => {
-                let message = DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns)?;
-                Ok(message)
-            }
         }
     }
 }
@@ -134,8 +129,8 @@ pub fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
     format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
 }
 
-/// Check the distance between 2 peers. Subscribe to new peer's mailbox topic
-/// if the distance is below [MAX_MAILBOX_DISTANCE]
+/// Check the distance between 2 peers. Subscribe to new peer's individual topic
+/// if the distance is below [MAX_REPLICA_DISTANCE]
 pub(crate) fn is_close_peer(peer_1: &PeerId, peer_2: &PeerId) -> bool {
     let peer_1_key = KBucketKey::from(*peer_1);
     let peer_2_key = KBucketKey::from(*peer_2);
@@ -143,7 +138,7 @@ pub(crate) fn is_close_peer(peer_1: &PeerId, peer_2: &PeerId) -> bool {
     let distance = KBucketKey::distance(&peer_1_key, &peer_2_key)
         .ilog2()
         .unwrap_or(0);
-    distance < MAX_MAILBOX_DISTANCE
+    distance < MAX_REPLICA_DISTANCE
 }
 
 

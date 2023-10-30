@@ -303,7 +303,7 @@ mod test {
             source: None,
             data: vec![],
             sequence_number: None,
-            topic: Topic::DroppedTxns.hash(),
+            topic: Topic::Mempool.hash(),
         };
 
         let subscribed_topics: Vec<&MessageTopicHash> = peer.behaviour.gossip.topics().collect();

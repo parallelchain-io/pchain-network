@@ -208,13 +208,25 @@ async fn test_send_to_only_specific_receiver() {
             }
         }
     }
+
+    let node2_received = _message_receiver_2
+    .try_recv()
+    .into_iter()
+    .find(|x| {
+        let (origin, received_msg) = x.clone();
+        let received_msg= Vec::from(received_msg);
+        let incoming_message = outgoing_message.try_to_vec().unwrap();
+        (origin,received_msg) == (address_1, incoming_message)
+    });
+
+    assert!(node2_received.is_some());
 }
 
 // - Network: Node1, Node2, Node3
 // - Node1: keep sending message to Node3 only
 // - Node2: set Node1 as bootnode, listens to subscribed topics
 // - Node3: set Node2 as bootnode, keep sending message to Node1 only
-// - Node1 and Node3 should receive message from each other
+// - Node1 and Node3 should receive message from each other after some delay
 #[tokio::test]
 async fn test_sparse_messaging() {
     let keypair_1 = ed25519::Keypair::generate();
@@ -249,7 +261,7 @@ async fn test_sparse_messaging() {
     )
     .await;
 
-    let mut sending_limit = 20;
+    let mut sending_limit = 15;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
@@ -297,6 +309,8 @@ async fn test_sparse_messaging() {
 
 // - Network: Node1
 // - Node1: keep broadcasting subscribed message
+// - Node1: keep sending message to itself
+// - Node1: Should receive both messages
 #[tokio::test]
 async fn test_send_and_broadcast_to_self() {
     let keypair_1 = ed25519::Keypair::generate();

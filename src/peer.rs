@@ -53,7 +53,7 @@ use std::time::Duration;
 use crate::{
     behaviour::{Behaviour, NetworkEvent},
     conversions,
-    messages::{DroppedTxnMessage,Message, Topic},
+    messages::{Message, Topic},
     config::Config,
 };
 
@@ -102,13 +102,6 @@ impl Peer {
         let _ = self.sender.try_send(PeerCommand::Publish(
             Topic::Mempool,
             Message::Mempool(txn),
-        ));
-    }
-
-    pub fn broadcast_dropped_tx_msg(&self, msg: DroppedTxnMessage) {
-        let _ = self.sender.try_send(PeerCommand::Publish(
-            Topic::DroppedTxns,
-            Message::DroppedTxns(msg),
         ));
     }
 
@@ -304,7 +297,7 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, me
                             swarm.behaviour_mut().add_address(&peer_id, a.clone());
                         });
 
-                        // subscribe to mailbox topic
+                        // subscribe to individual topic of closest replicas when added to Kademlia Kbucket
                         if let Ok(addr) = conversions::PublicAddress::try_from(peer_id) {
                             let public_addr: PublicAddress = addr.into();
                             let topic = Topic::HotStuffRsSend(public_addr);
@@ -318,7 +311,7 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, me
                     SwarmEvent::ConnectionClosed { peer_id, .. } => {
                         swarm.behaviour_mut().remove_peer(&peer_id);
 
-                        // unsubscribe from mailbox topic
+                        // unsubscribe from individual topic of replicas if disconnected
                         if let Ok(addr) = conversions::PublicAddress::try_from(peer_id) {
                             let public_addr: PublicAddress = addr.into();
                             let topic = Topic::HotStuffRsSend(public_addr);

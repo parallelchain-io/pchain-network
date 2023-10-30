@@ -54,6 +54,5 @@ pub(crate) fn fullnode_topics(public_address: PublicAddress) -> Vec<Topic> {
         Topic::HotStuffRsBroadcast,
         Topic::HotStuffRsSend(public_address),
         Topic::Mempool,
-        Topic::DroppedTxns,
     ]
 }
