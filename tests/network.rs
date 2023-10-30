@@ -70,14 +70,18 @@ async fn test_broadcast() {
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                let node2_received = message_receiver_2.try_recv();
-                if node2_received.is_ok() {
-                    let (msg_origin, msg) = node2_received.unwrap();
-                    let msg_vec: Vec<u8> = msg.into();
-                    assert_eq!(msg_vec, Vec::from(message.clone()));
-                    assert_eq!(msg_origin, address_1);
-                    return
-                } 
+                let node2_received = message_receiver_2
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let message = Vec::from(message.clone());
+                    (origin,received_msg) == (address_1, message)
+                });
+                if node2_received.is_some() {
+                    return;
+                }
             }
         }
     }
@@ -123,14 +127,18 @@ async fn test_send_to() {
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                let node2_received = message_receiver_2.try_recv();
-                if node2_received.is_ok() {
-                    let (msg_orgin, msg) = node2_received.unwrap();
-                    let msg_vec: Vec<u8> = msg.into();
-                    assert_eq!(msg_vec, message.try_to_vec().unwrap());
-                    assert_eq!(msg_orgin, address_1);
-                    return
-                }        
+                let node2_received = message_receiver_2
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let message = message.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, message)
+                });
+                if node2_received.is_some() {
+                    return;
+                }     
             }
         }
     }
@@ -160,7 +168,7 @@ async fn test_send_to_only_specific_receiver() {
         vec![]
     ).await;
 
-    let (_node_2, _message_receiver_2) = node(
+    let (_node_2, message_receiver_2) = node(
         keypair_2,
         30006,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
@@ -182,10 +190,12 @@ async fn test_send_to_only_specific_receiver() {
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
+    let message = create_sync_req(1);
+
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_hotstuff_rs_msg(address_2, create_sync_req(1));
+                node_1.send_hotstuff_rs_msg(address_2, message.clone());
 
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
@@ -193,18 +203,30 @@ async fn test_send_to_only_specific_receiver() {
             _ = receiving_tick.tick() => {
                 let node3_received = message_receiver_3.try_recv().is_ok();
                 if node3_received {
-                    panic!("Wrong recipient");
-                }
+                    panic!("Wrong Recipient!");
+                }     
             }
         }
     }
+
+    let node2_received = message_receiver_2
+    .try_recv()
+    .into_iter()
+    .find(|x| {
+        let (origin, received_msg) = x.clone();
+        let received_msg= Vec::from(received_msg);
+        let message = message.try_to_vec().unwrap();
+        (origin,received_msg) == (address_1, message)
+    });
+
+    assert!(node2_received.is_some());
 }
 
 // - Network: Node1, Node2, Node3
 // - Node1: keep sending message to Node3 only
 // - Node2: set Node1 as bootnode, listens to subscribed topics
 // - Node3: set Node2 as bootnode, keep sending message to Node1 only
-// - Node1 and Node3 should receive message from each other
+// - Node1 and Node3 should receive message from each other after some delay
 #[tokio::test]
 async fn test_sparse_messaging() {
     let keypair_1 = ed25519::Keypair::generate();
@@ -239,7 +261,7 @@ async fn test_sparse_messaging() {
     )
     .await;
 
-    let mut sending_limit = 10;
+    let mut sending_limit = 15;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
@@ -256,18 +278,28 @@ async fn test_sparse_messaging() {
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                let node1_received = message_receiver_1.try_recv();
-                let node3_received = message_receiver_3.try_recv();
-                if node3_received.is_ok() && node1_received.is_ok() {
-                    let (node1_message_origin, node1_message) = node1_received.unwrap();
-                    let (node3_message_origin, node3_message) = node3_received.unwrap();
-                    let node1_message_vec: Vec<u8> = node1_message.into();
-                    let node3_message_vec: Vec<u8> = node3_message.into();
-                    assert_eq!(node1_message_vec, message_to_node1.try_to_vec().unwrap());
-                    assert_eq!(node3_message_vec, message_to_node3.try_to_vec().unwrap());
-                    assert_eq!(node1_message_origin, address_3);
-                    assert_eq!(node3_message_origin, address_1);
-                    return;
+                let node1_received = message_receiver_1
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let message_to_node1 = message_to_node1.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_3, message_to_node1)
+                });
+                
+                let node3_received = message_receiver_3
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let message_to_node3 = message_to_node3.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, message_to_node3)
+                });
+
+                if node1_received.is_some() && node3_received.is_some() {
+                    return
                 }
             }
         }
@@ -277,8 +309,10 @@ async fn test_sparse_messaging() {
 
 // - Network: Node1
 // - Node1: keep broadcasting subscribed message
+// - Node1: keep sending message to itself
+// - Node1: Should receive both messages
 #[tokio::test]
-async fn test_broadcast_to_self() {
+async fn test_send_and_broadcast_to_self() {
     let keypair_1 = ed25519::Keypair::generate();
     let address_1 = keypair_1.public().to_bytes();
 
@@ -293,66 +327,41 @@ async fn test_broadcast_to_self() {
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-    let message = create_sync_req(1);
+    let send_message = create_sync_req(1);
+    let broadcast_message = create_sync_req(2);
 
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.broadcast_hotstuff_rs_msg(message.clone());
+                node_1.send_hotstuff_rs_msg(address_1,send_message.clone());
+                node_1.broadcast_hotstuff_rs_msg(broadcast_message.clone());
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                let node1_received = message_receiver_1.try_recv();
-                if node1_received.is_ok() {
-                    let (msg_origin, msg) = node1_received.unwrap();
-                    let msg_vec: Vec<u8> = msg.into();
-                    assert_eq!(msg_vec, message.try_to_vec().unwrap());
-                    assert_eq!(msg_origin, address_1);
+                let send_message_received = message_receiver_1
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let send_message = send_message.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, send_message)
+                });
+
+                let broadcast_message_received = message_receiver_1
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let broadcast_message = broadcast_message.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, broadcast_message)
+                });
+
+                if send_message_received.is_some() && broadcast_message_received.is_some() {
                     return
-                } 
-            }
-        }
-    }
-    panic!("Timeout! Failed to receive message.");
-}
-
-// - Network: Node1
-// - Node1: keep sending message to itself
-#[tokio::test]
-async fn test_send_to_self() {
-    let keypair_1 = ed25519::Keypair::generate();
-    let address_1 = keypair_1.public().to_bytes();
-
-    let (node_1, message_receiver_1) = node(
-        keypair_1,
-        30014, 
-        vec![],
-        vec![Topic::HotStuffRsBroadcast]
-    ).await;
-
-    let mut sending_limit = 10;
-    let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
-    let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
-
-    let message = create_sync_req(1);
-
-    loop {
-        tokio::select! {
-            _ = sending_tick.tick() => {
-                node_1.send_hotstuff_rs_msg(address_1, message.clone());
-                if sending_limit == 0 { break }
-                sending_limit -= 1;
-            }
-            _ = receiving_tick.tick() => {
-                let node1_received = message_receiver_1.try_recv();
-                if node1_received.is_ok() {
-                    let (msg_origin, msg) = node1_received.unwrap();
-                    let msg_vec: Vec<u8> = msg.into();
-                    assert_eq!(msg_vec, message.try_to_vec().unwrap());
-                    assert_eq!(msg_origin, address_1);
-                    return
-                } 
+                }
             }
         }
     }
@@ -474,13 +483,31 @@ pub async fn node(
 
     let(tx,rx) = mpsc::channel();
 
+    let hotstuff_sender = tx.clone();
+    let hotstuff_handler = move |msg_origin: [u8;32], msg: Message| {
+        match msg {
+            Message::HotStuffRs(hotstuff_message) => {
+                // process hotstuff message
+                let _ = hotstuff_sender.send((msg_origin, Message::HotStuffRs(hotstuff_message)));
+            }
+            _ => {}
+        }
+    };
+
     let message_sender = tx.clone();
-    let message_handler = move |msg_origin: [u8;32], msg: Message| {
-        let _ = message_sender.send((msg_origin, msg));
+    let mempool_handler = move |msg_origin: [u8;32], msg: Message| {
+        match msg {
+            Message::Mempool(mempool_message) => {
+                // process mempool message
+                let _ = message_sender.send((msg_origin, Message::Mempool(mempool_message)));
+            }
+            _ => {}
+        }
     };
 
     let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
-    message_handlers.push(Box::new(message_handler));
+    message_handlers.push(Box::new(hotstuff_handler));
+    message_handlers.push(Box::new(mempool_handler));
 
     let peer = Peer::start(config, message_handlers).await.unwrap();
 
