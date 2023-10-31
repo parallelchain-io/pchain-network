@@ -10,7 +10,7 @@
 //!
 //! ```no_run
 //! use crate::Config;
-//! use crate::peer::Peer;
+//! use crate::Peer;
 //! use crate::messages::Message;
 //!
 //!
@@ -61,3 +61,4 @@ pub mod conversions;
 pub mod messages;
 
 pub mod peer;
+pub use peer::Peer;
