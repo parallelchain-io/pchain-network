@@ -471,8 +471,9 @@ pub async fn node(
     topics_to_subscribe: Vec<Topic>
 ) -> (Peer, std::sync::mpsc::Receiver<(PublicAddress, Message)>) {
 
+    let local_keypair: pchain_types::cryptography::Keypair = pchain_types::cryptography::Keypair::from_keypair_bytes(&keypair.to_bytes()).unwrap();
     let config = Config {
-        keypair,
+        keypair:local_keypair,
         topics_to_subscribe,
         listening_port,
         boot_nodes,

@@ -20,8 +20,7 @@
 //! ```
 //!
 use std::net::Ipv4Addr;
-use libp2p::identity::ed25519::Keypair;
-use pchain_types::cryptography::PublicAddress;
+use pchain_types::cryptography::{Keypair, PublicAddress};
 
 use crate::messages::Topic;
 

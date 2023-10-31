@@ -11,7 +11,9 @@
 //!     - TryFrom<[PublicAddress]> for [PeerId]
 //!     - TryFrom<([libp2p::gossipsub::Message], [pchain_types::cryptography::PublicAddress])> for [Message]
 
-use libp2p::identity::{self, ed25519, DecodingError, OtherVariantError, PeerId};
+use libp2p::identity::{self, DecodingError, OtherVariantError, PeerId,
+    ed25519::{Keypair, PublicKey}
+};
 use libp2p::Multiaddr;
 use std::net::Ipv4Addr;
 use borsh::BorshDeserialize;
@@ -53,7 +55,7 @@ impl TryFrom<PublicAddress> for PeerId {
     type Error = DecodingError;
 
     fn try_from(public_addr: PublicAddress) -> Result<Self, Self::Error> {
-        let kp = ed25519::PublicKey::try_from_bytes(&public_addr.0)?;
+        let kp = PublicKey::try_from_bytes(&public_addr.0)?;
         let public_key: identity::PublicKey = kp.into();
         Ok(public_key.to_peer_id())
     }
@@ -128,6 +130,24 @@ impl From<std::io::Error> for MessageConversionError {
     }
 }
 
+/// wrapper around [Keypair](libp2p::identity::ed25519::Keypair) 
+pub struct Libp2pKeypair(pub libp2p::identity::ed25519::Keypair);
+
+impl From<Libp2pKeypair> for Keypair {
+    fn from(value: Libp2pKeypair) -> Self {
+        value.0
+    }
+}
+
+/// conversion from [Keypair](pchain_types::cryptography::Keypair) to [Libp2pKeypair]
+impl TryFrom<pchain_types::cryptography::Keypair> for Libp2pKeypair {
+    type Error = DecodingError;
+
+    fn try_from(value: pchain_types::cryptography::Keypair) -> Result<Libp2pKeypair, DecodingError> {
+        let result = Keypair::try_from_bytes(value.to_keypair_bytes().as_mut_slice())?;
+        Ok(Libp2pKeypair(result))
+    }
+}
 
 /// Convert ip address [std::net::Ipv4Addr] and port [u16] into MultiAddr [libp2p::Multiaddr] type
 pub fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {

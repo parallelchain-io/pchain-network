@@ -194,14 +194,14 @@ mod test {
 
     use libp2p::{
         gossipsub,
-        identity::{ed25519, PeerId},
+        identity::{PeerId, ed25519},
         Multiaddr,
     };
-    use pchain_types::cryptography::PublicAddress;
+    use pchain_types::cryptography::{PublicAddress, self};
 
     use crate::{
         config::Config,
-        conversions,
+        conversions::{self, Libp2pKeypair},
         messages::{MessageTopicHash, Topic},
     };
 
@@ -215,8 +215,10 @@ mod test {
     }
 
     fn create_new_peer() -> Peer {
+        let keypair = ed25519::Keypair::generate();
+        let local_keypair: pchain_types::cryptography::Keypair = cryptography::Keypair::from_keypair_bytes(&keypair.to_bytes()).unwrap();
         let config = Config {
-            keypair: ed25519::Keypair::generate(),
+            keypair: local_keypair,
             topics_to_subscribe: vec![Topic::HotStuffRsBroadcast],
             listening_port: 25519,
             boot_nodes: vec![],
@@ -224,12 +226,13 @@ mod test {
             peer_discovery_interval: 10,
             kademlia_protocol_name: String::from("/test"),
         };
-
-        let public_address = config.keypair.public().to_bytes();
+        
+        let keypair: Libp2pKeypair = config.keypair.try_into().unwrap();
+        let public_address = keypair.0.public().to_bytes();
 
         let behaviour = Behaviour::new(
             public_address,
-            &config.keypair,
+            &keypair.0,
             config.kademlia_protocol_name,
         );
 
