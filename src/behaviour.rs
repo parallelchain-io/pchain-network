@@ -194,7 +194,7 @@ mod test {
         identity::{ed25519, PeerId},
         Multiaddr,
     };
-    use pchain_types::cryptography::PublicAddress;
+    use pchain_types::cryptography::{PublicAddress, self};
 
     use crate::{
         config::Config,
@@ -212,8 +212,10 @@ mod test {
     }
 
     fn create_new_peer() -> Peer {
+        let keypair = ed25519::Keypair::generate();
+        let local_keypair = cryptography::Keypair::from_keypair_bytes(&keypair.to_bytes()).unwrap();
         let config = Config {
-            keypair: ed25519::Keypair::generate(),
+            keypair: local_keypair,
             topics_to_subscribe: vec![Topic::HotStuffRsBroadcast],
             listening_port: 25519,
             boot_nodes: vec![],
@@ -222,11 +224,11 @@ mod test {
             kademlia_protocol_name: String::from("/test"),
         };
 
-        let public_address = config.keypair.public().to_bytes();
+        let public_address = config.keypair.verifying_key().to_bytes();
 
         let behaviour = Behaviour::new(
             public_address,
-            &config.keypair,
+            &keypair,
             config.kademlia_protocol_name,
         );
 

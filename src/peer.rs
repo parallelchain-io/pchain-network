@@ -40,7 +40,7 @@ use libp2p::{
     core::{muxing::StreamMuxerBox, transport::Boxed},
     dns::TokioDnsConfig,
     gossipsub,
-    identify, identity::{self}, noise,
+    identify, identity::{self, ed25519::Keypair}, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     tcp, yamux, PeerId, Transport,
 };
@@ -141,18 +141,19 @@ pub(crate) enum PeerCommand {
 async fn set_up_transport(config: &Config) -> Result<libp2p::Swarm<Behaviour>,std::io::Error> {
     // Read network configuration 
     let local_keypair = &config.keypair;
-    let local_public_address: PublicAddress = local_keypair.public().to_bytes();
-    let local_peer_id = identity::Keypair::from(local_keypair.clone())
+    let local_public_address: PublicAddress = local_keypair.verifying_key().to_bytes();
+    let local_libp2p_keypair = Keypair::try_from_bytes(config.keypair.to_keypair_bytes().as_mut_slice()).unwrap();
+    let local_peer_id = identity::Keypair::from(local_libp2p_keypair.clone())
         .public()
         .to_peer_id();
 
     log::info!("Local PeerId: {:?}", local_peer_id);
 
     // Instantiate Swarm
-    let transport = build_transport(local_keypair.clone()).await?;
+    let transport = build_transport(local_libp2p_keypair.clone()).await?;
     let behaviour = Behaviour::new(
         local_public_address,
-        &local_keypair,
+        &local_libp2p_keypair,
         config.kademlia_protocol_name.clone(),
     );
     let swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
@@ -211,10 +212,13 @@ fn establish_network_connections(mut swarm: libp2p::Swarm<Behaviour> , config: &
 fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>>) -> 
     (JoinHandle<()>,tokio::sync::mpsc::Sender<PeerCommand>) {
     // 4. Start p2p networking
-    let local_public_address = config.keypair.public().to_bytes();
-    let local_peer_id = identity::Keypair::from(config.keypair.clone())
+    let local_keypair = &config.keypair;
+    let local_public_address: PublicAddress = local_keypair.verifying_key().to_bytes();
+    let local_libp2p_keypair = Keypair::try_from_bytes(config.keypair.to_keypair_bytes().as_mut_slice()).unwrap();
+    let local_peer_id = identity::Keypair::from(local_libp2p_keypair.clone())
         .public()
         .to_peer_id();
+
     let (sender, mut receiver) =
         tokio::sync::mpsc::channel::<PeerCommand>(config.outgoing_msgs_buffer_capacity);
     let mut discover_tick =

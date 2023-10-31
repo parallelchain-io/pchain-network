@@ -9,7 +9,7 @@
 //!
 //! ```no_run
 //!     let config = Config {
-//!         keypair: libp2p_identity::ed25519::Keypair::generate(),
+//!         keypair: pchain_types::cryptography::Keypair,
 //!         topics_to_subscribe: vec![Topic::HotStuffRsBroadcast],
 //!         listening_port: 25519,
 //!         boot_nodes: vec![],
@@ -20,8 +20,7 @@
 //! ```
 //!
 use std::net::Ipv4Addr;
-use libp2p::identity::ed25519::Keypair;
-use pchain_types::cryptography::PublicAddress;
+use pchain_types::cryptography::{Keypair, PublicAddress};
 
 use crate::messages::Topic;
 

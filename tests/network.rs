@@ -8,6 +8,7 @@ use pchain_network::{
     config::Config,
     messages::{Topic, Message},
 };
+use pchain_types::cryptography;
 use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
 fn base_tx(signer: PublicAddress) -> TransactionV1 {
@@ -470,9 +471,9 @@ pub async fn node(
     boot_nodes: Vec<([u8;32], Ipv4Addr, u16)>,
     topics_to_subscribe: Vec<Topic>
 ) -> (Peer, std::sync::mpsc::Receiver<(PublicAddress, Message)>) {
-
+    let local_keypair = cryptography::Keypair::from_keypair_bytes(&keypair.to_bytes()).unwrap();
     let config = Config {
-        keypair,
+        keypair: local_keypair,
         topics_to_subscribe,
         listening_port,
         boot_nodes,

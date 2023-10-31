@@ -16,7 +16,7 @@
 //!
 //! // 1. Build a configuration.
 //! let config = Config {
-//!     keypair, // libp2p_identity::ed25519::Keypair::generate()
+//!     keypair, // pchain_types::cryptography::Keypair
 //!     topics_to_subscribe, // vec![Topic::HotStuffRsBroadcast]
 //!     listening_port, // 25519
 //!     boot_nodes, // vec![]
@@ -27,13 +27,18 @@
 //!
 //! // 2. Create message handlers 
 //! let (tx, rx) = mpsc::channel();
-//! let message_sender = tx.clone();
-//! let message_handler = move |msg_orgin: [u8;32], msg: Message| {
-//!     // processing the message...
-//!     let _ = message_sender.send((msg_origin, msg));
+//! let hotstuff_sender = tx.clone();
+//! let hotstuff_handler = move |msg_orgin: [u8;32], msg: Message| {
+//!     match msg {
+//!         Message::HotStuffRs(hotstuff_message) => {
+//!             //process hotstuff message
+//!             let _ = hotstuff_sender.send((msg_origin, Message::HotStuffRs(hotstuff_message)));
+//!         }
+//!         _ => {}
+//!     }  
 //! };
 //! let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
-//! message_handlers.push(Box::new(message_handler));
+//! message_handlers.push(Box::new(hotstuff_handler));
 //!  
 //! // 3. Start P2P network.
 //! let peer = Peer::start(config, message_handlers)
@@ -49,6 +54,7 @@
 pub mod behaviour;
 
 pub mod config;
+pub use config::Config;
 
 pub mod conversions;
 
