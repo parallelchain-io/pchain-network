@@ -9,7 +9,7 @@
 //!
 //! ```no_run
 //!     let config = Config {
-//!         keypair: libp2p_identity::ed25519::Keypair::generate(),
+//!         keypair: pchain_types::cryptography::Keypair,
 //!         topics_to_subscribe: vec![Topic::HotStuffRsBroadcast],
 //!         listening_port: 25519,
 //!         boot_nodes: vec![],
