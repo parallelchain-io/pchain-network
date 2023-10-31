@@ -201,8 +201,8 @@ mod test {
 
     use crate::{
         config::Config,
-        conversions::{self, Libp2pKeypair},
         messages::{MessageTopicHash, Topic},
+        conversions,
     };
 
     use super::Behaviour;
@@ -216,7 +216,7 @@ mod test {
 
     fn create_new_peer() -> Peer {
         let keypair = ed25519::Keypair::generate();
-        let local_keypair: pchain_types::cryptography::Keypair = cryptography::Keypair::from_keypair_bytes(&keypair.to_bytes()).unwrap();
+        let local_keypair = cryptography::Keypair::from_keypair_bytes(&keypair.to_bytes()).unwrap();
         let config = Config {
             keypair: local_keypair,
             topics_to_subscribe: vec![Topic::HotStuffRsBroadcast],
@@ -227,12 +227,11 @@ mod test {
             kademlia_protocol_name: String::from("/test"),
         };
         
-        let keypair: Libp2pKeypair = config.keypair.try_into().unwrap();
-        let public_address = keypair.0.public().to_bytes();
+        let public_address = config.keypair.verifying_key().to_bytes();
 
         let behaviour = Behaviour::new(
             public_address,
-            &keypair.0,
+            &keypair,
             config.kademlia_protocol_name,
         );
 

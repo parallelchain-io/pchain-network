@@ -7,12 +7,12 @@
 //!
 //! The following are implemented for converting between different types:
 //!     - From<[PublicAddress]> for [ParallelChain PublicAddress](pchain_types::cryptography::PublicAddress)
-//!     - TryFrom<PeerId> for [PublicAddress]
+//!     - TryFrom<[PeerId]> for [PublicAddress]
 //!     - TryFrom<[PublicAddress]> for [PeerId]
 //!     - TryFrom<([libp2p::gossipsub::Message], [pchain_types::cryptography::PublicAddress])> for [Message]
 
 use libp2p::identity::{self, DecodingError, OtherVariantError, PeerId,
-    ed25519::{Keypair, PublicKey}
+    ed25519::PublicKey
 };
 use libp2p::Multiaddr;
 use std::net::Ipv4Addr;
@@ -127,25 +127,6 @@ impl From<InvalidTopicError> for MessageConversionError {
 impl From<std::io::Error> for MessageConversionError {
     fn from(error: std::io::Error) -> MessageConversionError {
         MessageConversionError::DeserializeError(error)
-    }
-}
-
-/// wrapper around [Keypair](libp2p::identity::ed25519::Keypair) 
-pub struct Libp2pKeypair(pub libp2p::identity::ed25519::Keypair);
-
-impl From<Libp2pKeypair> for Keypair {
-    fn from(value: Libp2pKeypair) -> Self {
-        value.0
-    }
-}
-
-/// conversion from [Keypair](pchain_types::cryptography::Keypair) to [Libp2pKeypair]
-impl TryFrom<pchain_types::cryptography::Keypair> for Libp2pKeypair {
-    type Error = DecodingError;
-
-    fn try_from(value: pchain_types::cryptography::Keypair) -> Result<Libp2pKeypair, DecodingError> {
-        let result = Keypair::try_from_bytes(value.to_keypair_bytes().as_mut_slice())?;
-        Ok(Libp2pKeypair(result))
     }
 }
 
