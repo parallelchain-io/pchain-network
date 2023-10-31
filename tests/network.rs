@@ -36,11 +36,8 @@ fn create_sync_req(start_height: u64) -> hotstuff_rs::messages::Message {
 // - Node2: set Node1 as bootnode, listens to subscribed topics
 #[tokio::test]
 async fn test_broadcast() {
-    let keypair_1 = ed25519::Keypair::generate();
-    let address_1 = keypair_1.public().to_bytes();
-
-    let keypair_2 = ed25519::Keypair::generate();
-    let address_2 = keypair_2.public().to_bytes();
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
 
     let (node_1, _message_receiver_1) = node(
         keypair_1, 
@@ -93,11 +90,8 @@ async fn test_broadcast() {
 // - Node2: set Node1 as bootnode, listens to subscribed topics
 #[tokio::test]
 async fn test_send_to() {
-    let keypair_1 = ed25519::Keypair::generate();
-    let address_1 = keypair_1.public().to_bytes();
-
-    let keypair_2 = ed25519::Keypair::generate();
-    let address_2 = keypair_2.public().to_bytes();
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
 
     let (node_1, _message_receiver_1) = node(
         keypair_1, 
@@ -151,14 +145,9 @@ async fn test_send_to() {
 // - Node3: set Node1 and Node2 as bootnode, should not process any message
 #[tokio::test]
 async fn test_send_to_only_specific_receiver() {
-    let keypair_1 = ed25519::Keypair::generate();
-    let address_1 = keypair_1.public().to_bytes();
-
-    let keypair_2 = ed25519::Keypair::generate();
-    let address_2 = keypair_2.public().to_bytes();
-
-    let keypair_3 = ed25519::Keypair::generate();
-    let address_3 = keypair_3.public().to_bytes(); 
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
+    let (keypair_3, address_3) = generate_peer(); 
 
     let (node_1, _message_receiver_1) = node(
         keypair_1,
@@ -229,14 +218,9 @@ async fn test_send_to_only_specific_receiver() {
 // - Node1 and Node3 should receive message from each other after some delay
 #[tokio::test]
 async fn test_sparse_messaging() {
-    let keypair_1 = ed25519::Keypair::generate();
-    let address_1 = keypair_1.public().to_bytes();
-
-    let keypair_2 = ed25519::Keypair::generate();
-    let address_2 = keypair_2.public().to_bytes();
-
-    let keypair_3 = ed25519::Keypair::generate();
-    let address_3 = keypair_3.public().to_bytes(); 
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
+    let (keypair_3, address_3) = generate_peer();
 
     let (node_1, message_receiver_1) = node(
         keypair_1,
@@ -313,8 +297,7 @@ async fn test_sparse_messaging() {
 // - Node1: Should receive both messages
 #[tokio::test]
 async fn test_send_and_broadcast_to_self() {
-    let keypair_1 = ed25519::Keypair::generate();
-    let address_1 = keypair_1.public().to_bytes();
+    let (keypair_1, address_1) = generate_peer();
 
     let (node_1, message_receiver_1) = node(
         keypair_1,
@@ -373,11 +356,8 @@ async fn test_send_and_broadcast_to_self() {
 // - Node2: set Node1 as bootnode, should not receive anything from Node1
 #[tokio::test]
 async fn test_broadcast_different_topics() {
-    let keypair_1 = ed25519::Keypair::generate();
-    let address_1 = keypair_1.public().to_bytes();
-
-    let keypair_2 = ed25519::Keypair::generate();
-    let address_2 = keypair_2.public().to_bytes();
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
 
     let (node_1, _message_receiver_1) = node(
         keypair_1,
@@ -418,11 +398,8 @@ async fn test_broadcast_different_topics() {
 // - Node2: set Node1 as bootnode, the handle is being dropped, should not receive message
 #[tokio::test]
 async fn test_stopped_node() {
-    let keypair_1 = ed25519::Keypair::generate();
-    let address_1 = keypair_1.public().to_bytes();
-
-    let keypair_2 = ed25519::Keypair::generate();
-    let address_2 = keypair_2.public().to_bytes();
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
 
     let (node_1, _message_receiver_1) = node(
         keypair_1, 
@@ -463,6 +440,12 @@ async fn test_stopped_node() {
     }
 }
 
+// helper function to generate keypair and public address
+fn generate_peer() -> (Keypair, PublicAddress) {
+    let keypair = ed25519::Keypair::generate();
+    let address = keypair.public().to_bytes();
+    (keypair, address)
+}
 
 pub async fn node(
     keypair: Keypair,
