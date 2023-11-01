@@ -59,7 +59,10 @@ impl From<Message> for Vec<u8> {
     fn from(msg: Message) -> Self {
         match msg {
             Message::HotStuffRs(msg) => msg.try_to_vec().unwrap(),
-            Message::Mempool(txn) => Serializable::serialize(&txn),
+            Message::Mempool(txn) =>  match txn {
+                TransactionV1OrV2::V1(txn) => Serializable::serialize(&txn),
+                TransactionV1OrV2::V2(txn) => Serializable::serialize(&txn),
+            }
         }
     }
 }
