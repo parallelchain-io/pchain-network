@@ -15,6 +15,7 @@ use libp2p::identity::{self, ed25519, DecodingError, OtherVariantError, PeerId};
 use libp2p::{Multiaddr, kad::KBucketKey};
 use std::net::Ipv4Addr;
 use borsh::BorshDeserialize;
+use pchain_types::{cryptography, rpc};
 
 use crate::messages::{
     Message,
@@ -23,17 +24,17 @@ use crate::messages::{
 use crate::config::fullnode_topics;
 
 const MAX_REPLICA_DISTANCE: u32 = 255;
-/// PublicAddress(PublicAddress) is wrapper around [PublicAddress](pchain_types::cryptography::PublicAddress).
-pub struct PublicAddress(pchain_types::cryptography::PublicAddress);
+/// [PublicAddress(PublicAddress)] is wrapper around [PublicAddress](cryptography::PublicAddress).
+pub struct PublicAddress(cryptography::PublicAddress);
 
 impl PublicAddress {
-    pub fn new(addr: pchain_types::cryptography::PublicAddress) -> Self {
+    pub fn new(addr: cryptography::PublicAddress) -> Self {
         PublicAddress(addr)
     }
 }
 
-impl From<PublicAddress> for pchain_types::cryptography::PublicAddress {
-    fn from(peer: PublicAddress) -> pchain_types::cryptography::PublicAddress {
+impl From<PublicAddress> for cryptography::PublicAddress {
+    fn from(peer: PublicAddress) -> cryptography::PublicAddress {
         peer.0
     }
 }
@@ -76,10 +77,10 @@ impl From<DecodingError> for PublicAddressTryFromPeerIdError {
     }
 }
 
-impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddress)> for Message {
+impl TryFrom<(libp2p::gossipsub::Message, cryptography::PublicAddress)> for Message {
     type Error = MessageConversionError;
 
-    fn try_from((message , local_public_address): (libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddress)) 
+    fn try_from((message , local_public_address): (libp2p::gossipsub::Message, cryptography::PublicAddress)) 
     -> Result<Self, Self::Error> {
         let (topic_hash, data) = (message.topic, message.data);
         let mut data = data.as_slice();
@@ -95,7 +96,7 @@ impl TryFrom<(libp2p::gossipsub::Message, pchain_types::cryptography::PublicAddr
                 Ok(message)
             },
             Mempool => {
-                let message = pchain_types::blockchain::TransactionV1::deserialize(&mut data).map(Message::Mempool)?;
+                let message = rpc::TransactionV1OrV2::deserialize(&mut data).map(Message::Mempool)?;
                 Ok(message)
             },
         }

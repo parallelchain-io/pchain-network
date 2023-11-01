@@ -45,8 +45,7 @@ use libp2p::{
     tcp, yamux, PeerId, Transport,
 };
 use libp2p_mplex::MplexConfig;
-use pchain_types::cryptography::PublicAddress;
-use pchain_types::blockchain::TransactionV1;
+use pchain_types::{cryptography::PublicAddress, rpc::TransactionV1OrV2};
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
@@ -98,7 +97,7 @@ impl Peer {
         )
     }
 
-    pub fn broadcast_mempool_msg(&self, txn: TransactionV1) {
+    pub fn broadcast_mempool_msg(&self, txn: TransactionV1OrV2) {
         let _ = self.sender.try_send(PeerCommand::Publish(
             Topic::Mempool,
             Message::Mempool(txn),

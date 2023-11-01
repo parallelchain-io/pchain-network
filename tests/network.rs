@@ -8,10 +8,15 @@ use pchain_network::{
     config::Config,
     messages::{Topic, Message},
 };
-use pchain_types::cryptography;
-use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
-fn base_tx(signer: PublicAddress) -> TransactionV1 {
+use pchain_types::{
+    blockchain::{TransactionV1, TransactionV2},
+    rpc,
+    cryptography,
+    cryptography::PublicAddress
+};
+
+fn base_tx_v1(signer: PublicAddress) -> TransactionV1 {
     TransactionV1 {
         signer,
         nonce: 0,
@@ -21,6 +26,19 @@ fn base_tx(signer: PublicAddress) -> TransactionV1 {
         priority_fee_per_gas: 0,
         hash: [0u8; 32],
         signature: [0u8; 64],
+    }
+}
+
+fn base_tx_v2(signer: PublicAddress) -> TransactionV2 {
+    TransactionV2 {
+        signer,
+        nonce: 0,
+        commands: vec![],
+        gas_limit: 200000,
+        max_base_fee_per_gas: 8,
+        priority_fee_per_gas: 0,
+        hash: [1u8; 32],
+        signature: [1u8; 64],
     }
 }
 
@@ -58,12 +76,12 @@ async fn test_broadcast() {
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-    let message = Message::Mempool(base_tx(address_1));
+    let message = Message::Mempool(rpc::TransactionV1OrV2::V1(base_tx_v1(address_1)));
 
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.broadcast_mempool_msg(base_tx(address_1));
+                node_1.broadcast_mempool_msg(rpc::TransactionV1OrV2::V1(base_tx_v1(address_1)));
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
@@ -381,7 +399,7 @@ async fn test_broadcast_different_topics() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.broadcast_mempool_msg(base_tx(address_1));
+                node_1.broadcast_mempool_msg(rpc::TransactionV1OrV2::V1(base_tx_v1(address_1)));
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }

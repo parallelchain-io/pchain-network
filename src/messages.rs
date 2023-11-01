@@ -15,9 +15,8 @@
 use borsh::{BorshSerialize, BorshDeserialize};
 use libp2p::gossipsub::IdentTopic;
 use pchain_types::{
-    blockchain::TransactionV1,
     cryptography::PublicAddress,
-    serialization::Serializable,
+    serialization::Serializable, rpc::TransactionV1OrV2,
 };
 
 /// Hash of the message topic.
@@ -53,7 +52,7 @@ impl From<Topic> for IdentTopic {
 #[derive(Clone, BorshSerialize, BorshDeserialize)]
 pub enum Message {
     HotStuffRs(hotstuff_rs::messages::Message),
-    Mempool(TransactionV1),
+    Mempool(TransactionV1OrV2),
 }
 
 impl From<Message> for Vec<u8> {
