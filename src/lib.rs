@@ -59,5 +59,7 @@ pub use config::Config;
 pub mod conversions;
 
 pub mod messages;
+pub use messages::Message;
 
 pub mod peer;
+pub use peer::Peer;
