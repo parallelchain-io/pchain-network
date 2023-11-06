@@ -1,4 +1,4 @@
-use std::{net::Ipv4Addr, sync::mpsc, time::Duration};
+use std::{net::Ipv4Addr, time::Duration};
 
 use borsh::BorshSerialize;
 use hotstuff_rs::messages::SyncRequest;
@@ -46,7 +46,7 @@ async fn test_broadcast() {
         vec![]
     ).await;
 
-    let (_node_2, message_receiver_2) = node(
+    let (_node_2, mut message_receiver_2) = node(
         keypair_2,
         30002,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30001)],
@@ -100,7 +100,7 @@ async fn test_send_to() {
         vec![]
     ).await;
 
-    let (_node_2, message_receiver_2) = node(
+    let (_node_2, mut message_receiver_2) = node(
         keypair_2,
         30004,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30003)],
@@ -157,7 +157,7 @@ async fn test_send_to_only_specific_receiver() {
         vec![]
     ).await;
 
-    let (_node_2, message_receiver_2) = node(
+    let (_node_2, mut message_receiver_2) = node(
         keypair_2,
         30006,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
@@ -166,7 +166,7 @@ async fn test_send_to_only_specific_receiver() {
     )
     .await;
 
-    let (_node_3, message_receiver_3) = node(
+    let (_node_3, mut message_receiver_3) = node(
         keypair_3,
         30007,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
@@ -222,7 +222,7 @@ async fn test_sparse_messaging() {
     let (keypair_2, address_2) = generate_peer();
     let (keypair_3, address_3) = generate_peer();
 
-    let (node_1, message_receiver_1) = node(
+    let (node_1, mut message_receiver_1) = node(
         keypair_1,
         30008, 
         vec![], 
@@ -237,7 +237,7 @@ async fn test_sparse_messaging() {
     )
     .await;
 
-    let (node_3, message_receiver_3) = node(
+    let (node_3, mut message_receiver_3) = node(
         keypair_3,
         30010,
         vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30009)],
@@ -299,7 +299,7 @@ async fn test_sparse_messaging() {
 async fn test_send_and_broadcast_to_self() {
     let (keypair_1, address_1) = generate_peer();
 
-    let (node_1, message_receiver_1) = node(
+    let (node_1, mut message_receiver_1) = node(
         keypair_1,
         30013, 
         vec![],
@@ -366,7 +366,7 @@ async fn test_broadcast_different_topics() {
         vec![Topic::Mempool]
     ).await;
 
-    let (_node_2, message_receiver_2) = node(
+    let (_node_2, mut message_receiver_2) = node(
         keypair_2,
         30016,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30015)],
@@ -408,7 +408,7 @@ async fn test_stopped_node() {
         vec![]
     ).await;
 
-    let (node_2, message_receiver_2) = node(
+    let (node_2, mut message_receiver_2) = node(
         keypair_2,
         30018,
         vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30017)],
@@ -452,7 +452,7 @@ pub async fn node(
     listening_port: u16,
     boot_nodes: Vec<([u8;32], Ipv4Addr, u16)>,
     topics_to_subscribe: Vec<Topic>
-) -> (Peer, std::sync::mpsc::Receiver<(PublicAddress, Message)>) {
+) -> (Peer, tokio::sync::mpsc::Receiver<(PublicAddress, Message)>) {
 
     let local_keypair = pchain_types::cryptography::Keypair::from_keypair_bytes(&keypair.to_bytes()).unwrap();
     let config = Config {
@@ -465,14 +465,14 @@ pub async fn node(
         kademlia_protocol_name: String::from("/pchain_p2p/1.0.0")
     };
 
-    let(tx,rx) = mpsc::channel();
+    let(tx,rx) = tokio::sync::mpsc::channel(100);
 
     let hotstuff_sender = tx.clone();
     let hotstuff_handler = move |msg_origin: [u8;32], msg: Message| {
         match msg {
             Message::HotStuffRs(hotstuff_message) => {
                 // process hotstuff message
-                let _ = hotstuff_sender.send((msg_origin, Message::HotStuffRs(hotstuff_message)));
+                let _ = hotstuff_sender.try_send((msg_origin, Message::HotStuffRs(hotstuff_message)));
             }
             _ => {}
         }
@@ -483,7 +483,7 @@ pub async fn node(
         match msg {
             Message::Mempool(mempool_message) => {
                 // process mempool message
-                let _ = message_sender.send((msg_origin, Message::Mempool(mempool_message)));
+                let _ = message_sender.try_send((msg_origin, Message::Mempool(mempool_message)));
             }
             _ => {}
         }

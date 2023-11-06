@@ -22,7 +22,7 @@ use libp2p::{
         PeerId,
     },
     kad::{
-        store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent, KademliaStoreInserts, Mode,
+        self, store::MemoryStore, Mode,
     },
     ping,
     swarm::NetworkBehaviour,
@@ -43,7 +43,7 @@ const HEARTBEAT_INTERVAL: u64 = 10;
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "NetworkEvent")]
 pub(crate) struct Behaviour {
-    kad: Kademlia<MemoryStore>,
+    kad: kad::Behaviour<MemoryStore>,
     gossip: gossipsub::Behaviour,
     identify: identify::Behaviour,
     ping: ping::Behaviour,
@@ -76,15 +76,15 @@ impl Behaviour {
         }
     }
 
-    fn kad_config(peer_id: PeerId, protocol_name: String) -> Kademlia<MemoryStore> {
+    fn kad_config(peer_id: PeerId, protocol_name: String) -> kad::Behaviour<MemoryStore> {
         let protocol_name = StreamProtocol::try_from_owned(protocol_name).unwrap();
-        let kad_config = KademliaConfig::default()
+        let kad_config = kad::Config::default()
             .set_protocol_names(vec![protocol_name])
-            .set_record_filtering(KademliaStoreInserts::FilterBoth)
+            .set_record_filtering(kad::StoreInserts::FilterBoth)
             .to_owned();
 
         let mut kad =
-            Kademlia::<MemoryStore>::with_config(peer_id, MemoryStore::new(peer_id), kad_config);
+            kad::Behaviour::<MemoryStore>::with_config(peer_id, MemoryStore::new(peer_id), kad_config);
 
         kad.set_mode(Some(Mode::Server));
         kad
@@ -113,6 +113,7 @@ impl Behaviour {
                 .max_transmit_size(MAX_TRANSMIT_SIZE * MEGABYTES) // block size is limitted to 2 MB. Multiply by factor of safety = 2.
                 .message_id_fn(build_msg_id)
                 .heartbeat_interval(Duration::from_secs(HEARTBEAT_INTERVAL))
+                .allow_self_origin(true)
                 .build()
                 .unwrap(),
         )
@@ -158,7 +159,7 @@ impl Behaviour {
 
 /// The definition of Out-Event required by [Behaviour].
 pub(crate) enum NetworkEvent {
-    Kad(KademliaEvent),
+    Kad(kad::Event),
     Gossip(gossipsub::Event),
     Ping(ping::Event),
     Identify(identify::Event),
@@ -170,8 +171,8 @@ impl From<gossipsub::Event> for NetworkEvent {
     }
 }
 
-impl From<KademliaEvent> for NetworkEvent {
-    fn from(event: KademliaEvent) -> Self {
+impl From<kad::Event> for NetworkEvent {
+    fn from(event: kad::Event) -> Self {
         Self::Kad(event)
     }
 }
