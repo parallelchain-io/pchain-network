@@ -16,7 +16,7 @@ use borsh::{BorshSerialize, BorshDeserialize};
 use libp2p::gossipsub::IdentTopic;
 use pchain_types::{
     cryptography::PublicAddress,
-    serialization::Serializable, rpc::TransactionV1OrV2,
+    rpc::TransactionV1OrV2,
 };
 
 /// Hash of the message topic.
@@ -59,9 +59,10 @@ impl From<Message> for Vec<u8> {
     fn from(msg: Message) -> Self {
         match msg {
             Message::HotStuffRs(msg) => msg.try_to_vec().unwrap(),
-            Message::Mempool(txn) =>  match txn {
-                TransactionV1OrV2::V1(txn) => Serializable::serialize(&txn),
-                TransactionV1OrV2::V2(txn) => Serializable::serialize(&txn),
+            Message::Mempool(txn) => {
+                let mut data: Vec<u8> = Vec::new();
+                TransactionV1OrV2::serialize(&txn, &mut data).unwrap();
+                data
             }
         }
     }
