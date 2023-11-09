@@ -489,7 +489,7 @@ pub async fn node(
         }
     };
 
-    let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
+    let mut message_handlers: Vec<Box<dyn FnMut(PublicAddress, Message) + Send>> = vec![];
     message_handlers.push(Box::new(hotstuff_handler));
     message_handlers.push(Box::new(mempool_handler));
 
