@@ -102,7 +102,7 @@ impl From<&DroppedTxnStatusCode> for u16 {
 impl borsh::BorshSerialize for DroppedTxnStatusCode {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         let status_code: u16 = self.into();
-        status_code.serialize(writer)
+        BorshSerialize::serialize(&status_code, writer)
     }
 }
 
