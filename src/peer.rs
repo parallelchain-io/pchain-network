@@ -164,11 +164,10 @@ async fn set_up_transport(config: &Config) -> Result<libp2p::Swarm<Behaviour>,st
     let swarm = SwarmBuilder::with_existing_identity(local_libp2p_keypair.into())
         .with_tokio()
         .with_tcp(
-            tcp::Config::new(), 
+            tcp::Config::new().nodelay(true), 
             noise::Config::new,
             (MplexConfig::default, libp2p::yamux::Config::default)
         ).unwrap()
-        .with_dns()?
         .with_behaviour(|_| behaviour).unwrap()
         .with_swarm_config(|config| config.with_idle_connection_timeout(Duration::from_secs(20)))
         .build();
