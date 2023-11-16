@@ -37,12 +37,11 @@
 use futures::StreamExt;
 use tokio::task::JoinHandle;
 use libp2p::{
-    core::{muxing::StreamMuxerBox, transport::Boxed},
-    dns::TokioDnsConfig,
     gossipsub,
     identify, identity::{self, ed25519::Keypair}, noise,
-    swarm::{SwarmBuilder, SwarmEvent},
-    tcp, yamux, PeerId, Transport,
+    SwarmBuilder,
+    swarm::SwarmEvent,
+    tcp, yamux,
 };
 use libp2p_mplex::MplexConfig;
 use pchain_types::cryptography::PublicAddress;
@@ -157,13 +156,22 @@ async fn set_up_transport(config: &Config) -> Result<libp2p::Swarm<Behaviour>,st
     log::info!("Local PeerId: {:?}", local_peer_id);
 
     // Instantiate Swarm
-    let transport = build_transport(local_libp2p_keypair.clone()).await?;
     let behaviour = Behaviour::new(
         local_public_address,
         &local_libp2p_keypair,
         config.kademlia_protocol_name.clone(),
     );
-    let swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
+    let swarm = SwarmBuilder::with_existing_identity(local_libp2p_keypair.into())
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::new(), 
+            noise::Config::new,
+            (MplexConfig::default, libp2p::yamux::Config::default)
+        ).unwrap()
+        .with_dns()?
+        .with_behaviour(|_| behaviour).unwrap()
+        .with_swarm_config(|config| config.with_idle_connection_timeout(Duration::from_secs(20)))
+        .build();
     Ok(swarm)
 }
 
@@ -312,26 +320,6 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, mu
     });
 
     (network_thread_handle, sender)
-}
-
-
-async fn build_transport(
-    keypair: identity::ed25519::Keypair,
-) -> std::io::Result<Boxed<(PeerId, StreamMuxerBox)>> {
-    let transport = {
-        let tcp = libp2p::tcp::tokio::Transport::new(tcp::Config::new().nodelay(true));
-        TokioDnsConfig::system(tcp)?
-    };
-
-    let upgrade =
-        libp2p::core::upgrade::SelectUpgrade::new(yamux::Config::default(), MplexConfig::default());
-
-    Ok(transport
-        .upgrade(libp2p::core::upgrade::Version::V1)
-        .authenticate(noise::Config::new(&keypair.into()).unwrap())
-        .multiplex(upgrade)
-        .timeout(std::time::Duration::from_secs(20))
-        .boxed())
 }
 
 #[derive(Debug)]
