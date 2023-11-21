@@ -26,18 +26,18 @@
 //! };
 //!
 //! // 2. Create message handlers 
-//! let (tx, rx) = mpsc::channel();
+//! let (tx, rx) =  tokio::sync::mpsc::channel(100);
 //! let hotstuff_sender = tx.clone();
 //! let hotstuff_handler = move |msg_orgin: [u8;32], msg: Message| {
 //!     match msg {
 //!         Message::HotStuffRs(hotstuff_message) => {
 //!             //process hotstuff message
-//!             let _ = hotstuff_sender.send((msg_origin, Message::HotStuffRs(hotstuff_message)));
+//!             let _ = hotstuff_sender.try_send((msg_origin, Message::HotStuffRs(hotstuff_message)));
 //!         }
 //!         _ => {}
 //!     }  
 //! };
-//! let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
+//! let mut message_handlers: Vec<Box<dyn FnMut(PublicAddress, Message) + Send>> = vec![];
 //! message_handlers.push(Box::new(hotstuff_handler));
 //!  
 //! // 3. Start P2P network.
@@ -47,7 +47,7 @@
 //! 
 //! // 4. Send out messages.
 //! peer.broadcast_mempool_msg(txn);
-//!
+//! ```
 //!
 
 

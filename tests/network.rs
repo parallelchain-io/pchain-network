@@ -486,33 +486,21 @@ pub async fn node(
 
     let(tx,rx) = mpsc::channel(100);
 
-    let hotstuff_sender = tx.clone();
-    let hotstuff_handler = move |msg_origin: [u8;32], msg: Message| {
+    let message_sender = tx.clone();
+    let message_handler = move |msg_origin: [u8;32], msg: Message| {
         match msg {
             Message::HotStuffRs(hotstuff_message) => {
                 // process hotstuff message
-                let _ = hotstuff_sender.try_send((msg_origin, Message::HotStuffRs(hotstuff_message)));
+                let _ = message_sender.try_send((msg_origin, Message::HotStuffRs(hotstuff_message)));
             }
-            _ => {}
-        }
-    };
-
-    let message_sender = tx.clone();
-    let mempool_handler = move |msg_origin: [u8;32], msg: Message| {
-        match msg {
             Message::Mempool(mempool_message) => {
                 // process mempool message
                 let _ = message_sender.try_send((msg_origin, Message::Mempool(mempool_message)));
             }
-            _ => {}
         }
     };
 
-    let mut message_handlers: Vec<Box<dyn FnMut(PublicAddress, Message) + Send>> = vec![];
-    message_handlers.push(Box::new(hotstuff_handler));
-    message_handlers.push(Box::new(mempool_handler));
-
-    let peer = Peer::start(config, message_handlers).await.unwrap();
+    let peer = Peer::start(config, Box::new(message_handler)).await.unwrap();
 
     (peer, rx)
 }

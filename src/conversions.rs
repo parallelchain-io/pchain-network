@@ -9,7 +9,7 @@
 //!     - From<[PublicAddress]> for [ParallelChain PublicAddress](pchain_types::cryptography::PublicAddress)
 //!     - TryFrom<PeerId> for [PublicAddress]
 //!     - TryFrom<[PublicAddress]> for [PeerId]
-//!     - TryFrom<([libp2p::gossipsub::Message], [pchain_types::cryptography::PublicAddress])> for [Message]
+//!     - filter_gossipsub_messages([libp2p::gossipsub::Message], [pchain_types::cryptography::PublicAddress]) to [Message]
 
 use libp2p::identity::{self, ed25519, DecodingError, OtherVariantError, PeerId};
 use libp2p::{Multiaddr, kad::KBucketKey};
@@ -77,13 +77,11 @@ impl From<DecodingError> for PublicAddressTryFromPeerIdError {
     }
 }
 
-impl TryFrom<(libp2p::gossipsub::Message, cryptography::PublicAddress)> for Message {
-    type Error = MessageConversionError;
-
-    fn try_from((message , local_public_address): (libp2p::gossipsub::Message, cryptography::PublicAddress)) 
-    -> Result<Self, Self::Error> {
-        let (topic_hash, data) = (message.topic, message.data);
-        let mut data = data.as_slice();
+/// converts [Message](libp2p::gossipsub::Message) to [Message](Message) while 
+/// filtering for message topics that can be forwarded to fullnode
+pub fn filter_gossipsub_messages(message: libp2p::gossipsub::Message, local_public_address: cryptography::PublicAddress) -> Result<Message, MessageConversionError> {
+    let (topic_hash, data) = (message.topic, message.data);
+    let mut data = data.as_slice();
         
         let topic = fullnode_topics(local_public_address)
             .into_iter()
@@ -100,7 +98,6 @@ impl TryFrom<(libp2p::gossipsub::Message, cryptography::PublicAddress)> for Mess
                 Ok(message)
             },
         }
-    }
 }
 
 #[derive(Debug)]
