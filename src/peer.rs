@@ -10,29 +10,30 @@
 //!
 //! To start a pchain-network peer, users pass a [Config] instance and message handlers into Peer::start().
 //! [Config] contains the peer's keypair, or other deployment-specific parameters, such as listening ports, bootstrap nodes etc. 
-//! Users need to define the message handlers for processing the [Message]. 
+//! Users need to define the message handler for processing the [Message]. 
 //! Starting Peer will return a Sender for delivering PeerCommand to the thread. 
 //! 
 //! Example:
-//!
-//! // 1. Define the configurations
+//! 1. Define the configurations
+//! ```
 //! let config = Config {...}
-//!
-//! // 2. Define the message handlers 
+//! ```
+//! 2. Define the message handler 
+//! ```
 //! let(tx,rx) = mpsc::channel();
 //! let message_sender = tx.clone();
 //! let message_handler = move |msg_origin: [u8;32], msg: Message| {
 //!     let _ = message_sender.send((msg_origin, msg));
 //! };
-//! let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
-//! message_handlers.push(Box::new(message_handler));
-//! 
-//! // 3. Start the peer
-//! let peer = Peer::start(config, message_handlers).await.unwrap();
-//! 
-//! // 4. Send PeerCommand
+//! ```
+//! 3. Start the peer
+//! ```
+//! let peer = Peer::start(config, Box::new(message_handler)).await.unwrap();
+//! ```
+//! 4. Send PeerCommand
+//! ```
 //! peer.broadcast_mempool_msg(txn);
-//! 
+//! ```
 
 use futures::StreamExt;
 use tokio::task::JoinHandle;
@@ -41,7 +42,7 @@ use libp2p::{
     identify, identity::{self, ed25519::Keypair}, noise,
     SwarmBuilder,
     swarm::SwarmEvent,
-    tcp, yamux,
+    tcp,
 };
 use libp2p_mplex::MplexConfig;
 use pchain_types::cryptography::PublicAddress;
@@ -73,7 +74,7 @@ impl Peer {
 /// 3. Establishes connection to the network by adding bootnodes and subscribing to message [Topic]. 
 /// 4. Spawns an asynchronous [tokio] task and enters the event handling loop, returning a Sender used for sending 
 /// [PeerCommand] to the internal thread.
-    pub async fn start(config: Config, handlers: Vec<Box<dyn FnMut(PublicAddress, Message) + Send>>) -> Result<Peer, PeerStartError> {
+    pub async fn start(config: Config, handler: Box<dyn FnMut(PublicAddress, Message) + Send>) -> Result<Peer, PeerStartError> {
 
         let mut swarm = set_up_transport(&config)
         .await
@@ -88,7 +89,7 @@ impl Peer {
         swarm = establish_network_connections(swarm, &config)
         .map_err(PeerStartError::SubscriptionError)?;
 
-        let (handle, sender) = start_event_handling(swarm, &config, handlers);
+        let (handle, sender) = start_event_handling(swarm, &config, handler);
         Ok(
             Peer {
                 handle,
@@ -223,7 +224,7 @@ fn establish_network_connections(mut swarm: libp2p::Swarm<Behaviour> , config: &
 /// Upon receiving a (Shutdown)[PeerCommand::Shutdown] command, the process will exit the loop and terminate
 /// the thread.
 /// 
-fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, mut message_handlers: Vec<Box<dyn FnMut(PublicAddress, Message) + Send>>) -> 
+fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, mut message_handler: Box<dyn FnMut(PublicAddress, Message) + Send>) -> 
     (JoinHandle<()>,tokio::sync::mpsc::Sender<PeerCommand>) {
     // 4. Start p2p networking
     let local_public_address: PublicAddress = config.keypair.verifying_key().to_bytes();
@@ -261,8 +262,7 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, mu
                         log::info!("Publishing (Topic: {:?})", topic);
                         if swarm.behaviour().is_subscribed(&topic.clone().hash()) {
                             // Send it to ourselves if we subscribed to this topic
-                            message_handlers.iter_mut()
-                            .for_each(|handler| handler(local_public_address, message.clone()));
+                            message_handler(local_public_address, message.clone());
                         } 
                         if let Err(e) = swarm.behaviour_mut().publish(topic, message) {
                             log::debug!("Failed to publish the message. {:?}", e);
@@ -290,11 +290,9 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, mu
                                 if swarm.behaviour().is_subscribed(&message.topic) {
                                     // Send it to ourselves if we subscribed to this topic
                                     if let Ok(message) =
-                                        Message::try_from((message, local_public_address))
+                                        conversions::filter_gossipsub_messages(message, local_public_address)
                                     {
-                                        message_handlers.iter_mut().for_each(|handler| {
-                                            handler(public_addr, message.clone())
-                                        });
+                                        message_handler(public_addr, message.clone())
                                     }                                  
                                 }
                             }
