@@ -3,18 +3,28 @@
     Licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0
 */
 
-//! Data conversion functions that are used throughout this library.
+//! This module defines the data conversion functions that are used throughout the pchain-network library.
 //!
-//! The followings are implemented for converting between different types:
+//! The following are implemented for converting between different types:
 //!     - From<[PublicAddress]> for [ParallelChain PublicAddress](pchain_types::cryptography::PublicAddress)
-//!     - TryFrom<identity::PublicKey> for [PublicAddress]
-//!     - TryFrom<identity::PeerId> for [PublicAddress]
-//!     - TryFrom<[PublicAddress]> for [identity::PeerId]
+//!     - TryFrom<[PeerId]> for [PublicAddress]
+//!     - TryFrom<[PublicAddress]> for [PeerId]
+//!     - filter_gossipsub_messages([libp2p::gossipsub::Message], [pchain_types::cryptography::PublicAddress]) to [Message]
 
-use libp2p::{
-    identity::{self, ed25519, DecodingError, OtherVariantError},
-    PeerId,
+use libp2p::identity::{self, DecodingError, OtherVariantError, PeerId,
+    ed25519::PublicKey
 };
+use libp2p::Multiaddr;
+use std::net::Ipv4Addr;
+use borsh::BorshDeserialize;
+
+use crate::messages::{
+    DroppedTxnMessage, 
+    Message,
+    Topic::{HotStuffRsBroadcast,HotStuffRsSend,Mempool,DroppedTxns}
+};
+use crate::config::fullnode_topics;
+
 
 /// PublicAddress(PublicAddress) is wrapper around [PublicAddress](pchain_types::cryptography::PublicAddress).
 pub struct PublicAddress(pchain_types::cryptography::PublicAddress);
@@ -31,78 +41,107 @@ impl From<PublicAddress> for pchain_types::cryptography::PublicAddress {
     }
 }
 
-impl TryFrom<identity::PublicKey> for PublicAddress {
-    type Error = ConversionError;
-
-    fn try_from(public_key: identity::PublicKey) -> Result<Self, ConversionError> {
-        let kp = public_key.clone().try_into_ed25519()?;
-        Ok(PublicAddress(kp.to_bytes()))
-    }
-}
-
-impl TryFrom<identity::PeerId> for PublicAddress {
-    type Error = ConversionError;
+impl TryFrom<PeerId> for PublicAddress {
+    type Error = PublicAddressTryFromPeerIdError;
 
     fn try_from(peer_id: PeerId) -> Result<Self, Self::Error> {
         let kp = identity::PublicKey::try_decode_protobuf(&peer_id.to_bytes())?;
-        PublicAddress::try_from(kp)
+        let ed25519_key = kp.try_into_ed25519()?;
+        Ok(PublicAddress(ed25519_key.to_bytes()))
     }
 }
 
-impl TryFrom<PublicAddress> for identity::PeerId {
-    type Error = ConversionError;
+impl TryFrom<PublicAddress> for PeerId {
+    type Error = DecodingError;
 
     fn try_from(public_addr: PublicAddress) -> Result<Self, Self::Error> {
-        let kp = ed25519::PublicKey::try_from_bytes(&public_addr.0)?;
+        let kp = PublicKey::try_from_bytes(&public_addr.0)?;
         let public_key: identity::PublicKey = kp.into();
         Ok(public_key.to_peer_id())
     }
 }
 
 #[derive(Debug)]
-pub enum ConversionError {
+pub enum PublicAddressTryFromPeerIdError {
     OtherVariantError(OtherVariantError),
     DecodingError(DecodingError),
 }
 
-impl From<OtherVariantError> for ConversionError {
-    fn from(error: OtherVariantError) -> ConversionError {
-        ConversionError::OtherVariantError(error)
+impl From<OtherVariantError> for PublicAddressTryFromPeerIdError {
+    fn from(error: OtherVariantError) -> PublicAddressTryFromPeerIdError {
+        PublicAddressTryFromPeerIdError::OtherVariantError(error)
     }
 }
 
-impl From<DecodingError> for ConversionError {
-    fn from(error: DecodingError) -> ConversionError {
-        ConversionError::DecodingError(error)
+impl From<DecodingError> for PublicAddressTryFromPeerIdError {
+    fn from(error: DecodingError) -> PublicAddressTryFromPeerIdError {
+        PublicAddressTryFromPeerIdError::DecodingError(error)
     }
+}
+
+/// converts [Message](libp2p::gossipsub::Message) to [Message](Message) while 
+/// filtering for message topics that can be forwarded to fullnode
+pub fn filter_gossipsub_messages(message: libp2p::gossipsub::Message, local_public_address: pchain_types::cryptography::PublicAddress) 
+-> Result<Message, MessageConversionError> {
+    let (topic_hash, data) = (message.topic, message.data);
+    let mut data = data.as_slice();
+
+    let topic = fullnode_topics(local_public_address)
+        .into_iter()
+        .find(|t| t.clone().hash() == topic_hash)
+        .ok_or(InvalidTopicError)?;
+    
+    match topic {
+        HotStuffRsBroadcast | HotStuffRsSend(_) => {
+            let message = hotstuff_rs::messages::Message::deserialize(&mut data).map(Message::HotStuffRs)?;
+            Ok(message)
+        },
+        Mempool => {
+            let message = pchain_types::blockchain::TransactionV1::deserialize(&mut data).map(Message::Mempool)?;
+            Ok(message)
+        },
+        DroppedTxns => {
+            let message = DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns)?;
+            Ok(message)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InvalidTopicError;
+
+#[derive(Debug)]
+pub enum MessageConversionError {
+    DeserializeError(std::io::Error),
+    InvalidTopicError(InvalidTopicError),
+}
+
+impl From<InvalidTopicError> for MessageConversionError {
+    fn from(error: InvalidTopicError) -> MessageConversionError {
+        MessageConversionError::InvalidTopicError(error)
+    }
+}
+
+impl From<std::io::Error> for MessageConversionError {
+    fn from(error: std::io::Error) -> MessageConversionError {
+        MessageConversionError::DeserializeError(error)
+    }
+}
+
+/// Convert ip address [std::net::Ipv4Addr] and port [u16] into MultiAddr [libp2p::Multiaddr] type
+pub fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
+    format!("/ip4/{}/tcp/{}", ip_address, port).parse().unwrap()
 }
 
 #[cfg(test)]
 
 mod test {
     use super::*;
-    use libp2p::identity::{Keypair, PublicKey};
-
-    #[test]
-    fn test_public_key_and_public_address_conversion() {
-        // Generate ed25529 keypair and obtain its PublicKey.
-        let test_publickey = Keypair::generate_ed25519().public();
-
-        // Convert to pchain_types::cryptography::PublicAddress
-        let result = PublicAddress::try_from(test_publickey.clone());
-        assert!(result.is_ok());
-        let public_addr: pchain_types::cryptography::PublicAddress = result.unwrap().into();
-
-        // Convert it back to PublicKey
-        let result = ed25519::PublicKey::try_from_bytes(&public_addr);
-        assert!(result.is_ok());
-        let public_key: PublicKey = result.unwrap().into();
-        assert_eq!(test_publickey, public_key);
-    }
+    use identity::Keypair;
 
     #[test]
     fn test_peer_id_and_public_address_conversion() {
-        // Generate ed25519 keypair and obtain its PeerID.
+        // Generate ed25519 keypair and obtain the corresponding PeerId.
         let test_keypair = Keypair::generate_ed25519();
         let test_peerid = test_keypair.public().to_peer_id();
 
@@ -111,7 +150,7 @@ mod test {
         assert!(result.is_ok());
 
         // Convert it back to PeerId
-        let result: Result<PeerId, ConversionError> = result.unwrap().try_into();
+        let result: Result<PeerId, DecodingError> = result.unwrap().try_into();
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), test_peerid);
     }

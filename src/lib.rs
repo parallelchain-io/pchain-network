@@ -10,38 +10,54 @@
 //!
 //! ```no_run
 //! use crate::Config;
-//! use crate::message_gate::MessageGateChain;
-//! 
+//! use crate::Peer;
+//! use crate::messages::Message;
+//!
 //!
 //! // 1. Build a configuration.
-//! let config = Config::default();
+//! let config = Config {
+//!     keypair, // pchain_types::cryptography::Keypair
+//!     topics_to_subscribe, // vec![Topic::HotStuffRsBroadcast]
+//!     listening_port, // 25519
+//!     boot_nodes, // vec![]
+//!     outgoing_msgs_buffer_capacity, // 8
+//!     peer_discovery_interval, // 10
+//!     kademlia_protocol_name // "/pchain_p2p/1.0.0"
+//! };
 //!
-//! // 2. Create message gate chain.
-//! let gates = MessageGateChain::new()
-//! // .append(message_gate1)
-//! // .append(message_gate2)
-//! // ...
-//!
+//! // 2. Create message handlers 
+//! let (tx, rx) = tokio::sync::mpsc::channel();
+//! let message_sender = tx.clone();
+//! let message_handler = move |msg_origin: [u8;32], msg: Message| {
+//!     match msg {
+//!         Message::HotStuffRs(hotstuff_message) => {
+//!             // process hotstuff message
+//!             let _ = hotstuff_sender.try_send((msg_origin, Message::HotStuffRs(hotstuff_message)));
+//!         }
+//!         _ => {}
+//!     }
+//! };
+//!  
 //! // 3. Start P2P network.
-//! let network = pchain_network::NetworkHandle::start(network_config, subscribe_topics, message_gate_chain).await;
-//!
+//! let peer = Peer::start(config, Box::new(message_handler))
+//!     .await
+//!     .unwrap();
+//! 
 //! // 4. Send out messages.
-//! network.broadcast_mempool_tx_msg(txn);
+//! peer.broadcast_mempool_msg(txn);
+//! ```
+//!
+
+
+pub mod behaviour;
 
 pub mod config;
 pub use config::Config;
 
-pub(crate) mod engine;
+pub mod conversions;
 
 pub mod messages;
+pub use messages::Message;
 
-pub mod message_gate;
-
-pub mod network_handle;
-pub use network_handle::NetworkHandle;
-
-pub(crate) mod behaviour;
-
-pub(crate) mod constants;
-
-pub(crate) mod conversions;
+pub mod peer;
+pub use peer::Peer;

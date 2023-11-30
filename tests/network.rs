@@ -1,15 +1,12 @@
-use std::{net::Ipv4Addr, sync::Arc, time::Duration};
+use std::{net::Ipv4Addr, time::Duration};
 
-use async_trait::async_trait;
 use borsh::BorshSerialize;
-use futures::lock::Mutex;
 use hotstuff_rs::messages::SyncRequest;
-use libp2p::{identity::{Keypair, PublicKey}, gossipsub::TopicHash};
+use libp2p::identity::ed25519::{Keypair, self};
+use pchain_network::peer::Peer;
 use pchain_network::{
-    config::{Config, Peer},
-    message_gate::{MessageGate, MessageGateChain},
-    messages::{Topic, Envelope, Message},
-    NetworkHandle,
+    config::Config,
+    messages::{Topic, Message},
 };
 use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
@@ -35,18 +32,26 @@ fn create_sync_req(start_height: u64) -> hotstuff_rs::messages::Message {
 }
 
 // - Network: Node1, Node2
-// - Node1: keep broadcasting Mempool topic message
+// - Node1: Set Node2 as bootnode, keep broadcasting Mempool topic message
 // - Node2: set Node1 as bootnode, listens to subscribed topics
 #[tokio::test]
 async fn test_broadcast() {
-    let (address_1, node_1, _) = node(30001, vec![], None, vec![]).await;
-    let (_address_2, _node_2, receiver_gate) = node(
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
+
+    let (node_1, _message_receiver_1) = node(
+        keypair_1, 
+        30001, 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30002)], 
+        vec![]
+    ).await;
+
+    let (_node_2, mut message_receiver_2) = node(
+        keypair_2,
         30002,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30001)],
-        Some(Topic::Mempool),
-        vec![Topic::Mempool],
-    )
-    .await;
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30001)],
+        vec![Topic::Mempool]
+    ).await;
 
     let mut sending_limit = 10;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
@@ -57,14 +62,21 @@ async fn test_broadcast() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.broadcast_mempool_tx_msg(&base_tx(address_1));
+                node_1.broadcast_mempool_msg(base_tx(address_1));
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                if receiver_gate.received().await {
-                    assert_eq!(receiver_gate.get_message().await, Vec::from(message));
-                    assert_eq!(receiver_gate.get_origin().await, address_1);
+                let node2_received = message_receiver_2
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let message = Vec::from(message.clone());
+                    (origin,received_msg) == (address_1, message)
+                });
+                if node2_received.is_some() {
                     return;
                 }
             }
@@ -74,17 +86,92 @@ async fn test_broadcast() {
 }
 
 // - Network: Node1, Node2
-// - Node1: keep sending message to Node2 only
+// - Node1: set Node2 as bootnode, keep sending message to Node2 only
 // - Node2: set Node1 as bootnode, listens to subscribed topics
 #[tokio::test]
 async fn test_send_to() {
-    let (address_1, node_1, _) = node(30003, vec![], None, vec![]).await;
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
 
-    let (address_2, _node_2, receiver_gate) = node(
+    let (node_1, _message_receiver_1) = node(
+        keypair_1, 
+        30003, 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30004)], 
+        vec![]
+    ).await;
+
+    let (_node_2, mut message_receiver_2) = node(
+        keypair_2,
         30004,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30003)],
-        None,
-        vec![],
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30003)],
+        vec![]
+    ).await;
+
+    let mut sending_limit = 10;
+    let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
+    let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
+
+    let message = create_sync_req(1);
+
+    loop {
+        tokio::select! {
+            _ = sending_tick.tick() => {
+                node_1.send_hotstuff_rs_msg(address_2, message.clone());
+                if sending_limit == 0 { break }
+                sending_limit -= 1;
+            }
+            _ = receiving_tick.tick() => {
+                let node2_received = message_receiver_2
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let message = message.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, message)
+                });
+                if node2_received.is_some() {
+                    return;
+                }     
+            }
+        }
+    }
+    panic!("Timeout! Failed to receive message");
+}
+
+// - Network: Node1, Node2, Node3
+// - Node1: set Node2 and Node3 as bootnode, keep sending message to Node2 only
+// - Node2: set Node1 and Node3 as bootnode, listens to subscribed topics
+// - Node3: set Node1 and Node2 as bootnode, should not process any message
+#[tokio::test]
+async fn test_send_to_only_specific_receiver() {
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
+    let (keypair_3, address_3) = generate_peer(); 
+
+    let (node_1, _message_receiver_1) = node(
+        keypair_1,
+        30005, 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30006), 
+             (address_3, Ipv4Addr::new(127, 0, 0, 1), 30007)],
+        vec![]
+    ).await;
+
+    let (_node_2, mut message_receiver_2) = node(
+        keypair_2,
+        30006,
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
+             (address_3, Ipv4Addr::new(127, 0, 0, 1), 30007)],
+        vec![]
+    )
+    .await;
+
+    let (_node_3, mut message_receiver_3) = node(
+        keypair_3,
+        30007,
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005),
+             (address_2, Ipv4Addr::new(127, 0, 0, 1), 30006)],
+        vec![]
     )
     .await;
 
@@ -97,95 +184,68 @@ async fn test_send_to() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_to(address_2, message.clone());
-                if sending_limit == 0 { break }
-                sending_limit -= 1;
-            }
-            _ = receiving_tick.tick() => {
-                let node2_received = receiver_gate.received().await;
-                if node2_received  {
-                    assert_eq!(receiver_gate.get_message().await, message.try_to_vec().unwrap());
-                    assert_eq!(receiver_gate.get_origin().await, address_1);
-                    return;
-                }
-            }
-        }
-    }
-    panic!("Timeout! Failed to receive message");
-}
-
-// - Network: Node1, Node2, Node3
-// - Node1: keep sending message to Node2 only
-// - Node2: set Node1 as bootnode, listens to subscribed topics
-// - Node3: set Node1 as bootnode, should not process any message
-#[tokio::test]
-async fn test_send_to_only_specific_receiver() {
-    let (address_1, node_1, _) = node(30005, vec![], None, vec![]).await;
-
-    let (address_2, _node_2, _) = node(
-        30006,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005)],
-        None,
-        vec![],
-    )
-    .await;
-
-    let (_address_3, _node_3, receiver_gate) = node(
-        30007,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30005)],
-        None,
-        vec![],
-    )
-    .await;
-
-    let mut sending_limit = 10;
-    let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
-    let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
-
-    loop {
-        tokio::select! {
-            _ = sending_tick.tick() => {
-                node_1.send_to(address_2, create_sync_req(1));
+                node_1.send_hotstuff_rs_msg(address_2, message.clone());
 
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                let node3_received = receiver_gate.received().await;
+                let node3_received = message_receiver_3.try_recv().is_ok();
                 if node3_received {
-                    panic!("Wrong recipient");
-                }
+                    panic!("Wrong Recipient!");
+                }     
             }
         }
     }
+
+    let node2_received = message_receiver_2
+    .try_recv()
+    .into_iter()
+    .find(|x| {
+        let (origin, received_msg) = x.clone();
+        let received_msg= Vec::from(received_msg);
+        let message = message.try_to_vec().unwrap();
+        (origin,received_msg) == (address_1, message)
+    });
+
+    assert!(node2_received.is_some());
 }
 
 // - Network: Node1, Node2, Node3
 // - Node1: keep sending message to Node3 only
 // - Node2: set Node1 as bootnode, listens to subscribed topics
 // - Node3: set Node2 as bootnode, keep sending message to Node1 only
-// - Node1 and Node3 should receive message from each other
+// - Node1 and Node3 should receive message from each other after some delay
 #[tokio::test]
 async fn test_sparse_messaging() {
-    let (address_1, node_1, receiver_gate_1) = node(30008, vec![], None, vec![]).await;
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
+    let (keypair_3, address_3) = generate_peer();
 
-    let (address_2, _node_2, _) = node(
+    let (node_1, mut message_receiver_1) = node(
+        keypair_1,
+        30008, 
+        vec![], 
+        vec![]
+    ).await;
+
+    let (_node_2, _message_receiver_2) = node(
+        keypair_2,
         30009,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30008)],
-        None,
-        vec![],
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30008)],
+        vec![]
     )
     .await;
 
-    let (address_3, node_3, receiver_gate_3) = node(
+    let (node_3, mut message_receiver_3) = node(
+        keypair_3,
         30010,
-        vec![Peer::new(address_2, Ipv4Addr::new(127, 0, 0, 1), 30009)],
-        None,
-        vec![],
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30009)],
+        vec![]
     )
     .await;
 
-    let mut sending_limit = 10;
+    let mut sending_limit = 15;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
@@ -195,21 +255,35 @@ async fn test_sparse_messaging() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.send_to(address_3, message_to_node3.clone());
-                node_3.send_to(address_1, message_to_node1.clone());
+                node_1.send_hotstuff_rs_msg(address_3, message_to_node3.clone());
+                node_3.send_hotstuff_rs_msg(address_1, message_to_node1.clone());
 
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                let node1_received = receiver_gate_1.received().await;
-                let node3_received = receiver_gate_3.received().await;
-                if node3_received && node1_received {
-                    assert_eq!(receiver_gate_1.get_message().await, message_to_node1.try_to_vec().unwrap());
-                    assert_eq!(receiver_gate_3.get_message().await, message_to_node3.try_to_vec().unwrap());
-                    assert_eq!(receiver_gate_1.get_origin().await, address_3);
-                    assert_eq!(receiver_gate_3.get_origin().await, address_1);
-                    return;
+                let node1_received = message_receiver_1
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let message_to_node1 = message_to_node1.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_3, message_to_node1)
+                });
+                
+                let node3_received = message_receiver_3
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let message_to_node3 = message_to_node3.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, message_to_node3)
+                });
+
+                if node1_received.is_some() && node3_received.is_some() {
+                    return
                 }
             }
         }
@@ -218,30 +292,57 @@ async fn test_sparse_messaging() {
 }
 
 // - Network: Node1
-// - Node1: keep sending message itself only
+// - Node1: keep broadcasting subscribed message
+// - Node1: keep sending message to itself
+// - Node1: Should receive both messages
 #[tokio::test]
-async fn test_send_to_self() {
-    let (address_1, node_1, receiver_gate) = node(30013, vec![], None, vec![]).await;
+async fn test_send_and_broadcast_to_self() {
+    let (keypair_1, address_1) = generate_peer();
+
+    let (node_1, mut message_receiver_1) = node(
+        keypair_1,
+        30013, 
+        vec![],
+        vec![Topic::HotStuffRsBroadcast]
+    ).await;
 
     let mut sending_limit = 10;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-    let message = create_sync_req(1);
+    let send_message = create_sync_req(1);
+    let broadcast_message = create_sync_req(2);
 
     loop {
         tokio::select! {
-            //broadcast does not send to self
             _ = sending_tick.tick() => {
-                node_1.send_to(address_1, message.clone());
+                node_1.send_hotstuff_rs_msg(address_1,send_message.clone());
+                node_1.broadcast_hotstuff_rs_msg(broadcast_message.clone());
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                let node1_received = receiver_gate.received().await;
-                if node1_received {
-                    assert_eq!(receiver_gate.get_message().await, message.try_to_vec().unwrap());
-                    assert_eq!(receiver_gate.get_origin().await, address_1);
+                let send_message_received = message_receiver_1
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let send_message = send_message.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, send_message)
+                });
+
+                let broadcast_message_received = message_receiver_1
+                .try_recv()
+                .into_iter()
+                .find(|x| {
+                    let (origin, received_msg) = x.clone();
+                    let received_msg= Vec::from(received_msg);
+                    let broadcast_message = broadcast_message.try_to_vec().unwrap();
+                    (origin,received_msg) == (address_1, broadcast_message)
+                });
+
+                if send_message_received.is_some() && broadcast_message_received.is_some() {
                     return
                 }
             }
@@ -251,19 +352,26 @@ async fn test_send_to_self() {
 }
 
 // - Network: Node1, Node2
-// - Node1: keep broadcasting messages whose topic is not subscribed by Node2
+// - Node1: set Node2 as bootnode, keep broadcasting message with topic that is not subscribed by Node2
 // - Node2: set Node1 as bootnode, should not receive anything from Node1
 #[tokio::test]
 async fn test_broadcast_different_topics() {
-    let (address_1, node_1, _) = node(30014, vec![], None, vec![]).await;
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
 
-    let (_address_2, _node_2, receiver_gate) = node(
-        30015,
-        vec![Peer::new(address_1, Ipv4Addr::new(127, 0, 0, 1), 30014)],
-        Some(Topic::Mempool),
-        vec![Topic::Consensus],
-    )
-    .await;
+    let (node_1, _message_receiver_1) = node(
+        keypair_1,
+        30015, 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30016)],
+        vec![Topic::Mempool]
+    ).await;
+
+    let (_node_2, mut message_receiver_2) = node(
+        keypair_2,
+        30016,
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30015)],
+        vec![Topic::HotStuffRsBroadcast],
+    ).await;
 
     let mut sending_limit = 10;
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
@@ -272,12 +380,12 @@ async fn test_broadcast_different_topics() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.broadcast_mempool_tx_msg(&base_tx(address_1));
+                node_1.broadcast_mempool_msg(base_tx(address_1));
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
             _ = receiving_tick.tick() => {
-                if receiver_gate.received().await {
+                if message_receiver_2.try_recv().is_ok() {
                     panic!("Received messages that are not subscribed");
                 }
             }
@@ -285,87 +393,96 @@ async fn test_broadcast_different_topics() {
     }
 }
 
-pub async fn node(
-    port: u16,
-    boot_nodes: Vec<Peer>,
-    gate_topic: Option<Topic>,
-    subscribe_topics: Vec<Topic>,
-) -> (PublicAddress, NetworkHandle, MessageCounts) {
-    let keypair: Keypair = Keypair::generate_ed25519();
-    let address = public_address(&keypair.public());
-    let config = Config::with_keypair(
-        keypair
-            .try_into_ed25519()
-            .unwrap()
-            .to_bytes()
-            .try_into()
-            .unwrap(),
-    )
-    .set_port(port)
-    .set_boot_nodes(boot_nodes);
+// - Network: Node1, Node2
+// - Node1: set Node2 as bootnode, keep sending messages to Node2 only
+// - Node2: set Node1 as bootnode, the handle is being dropped, should not receive message
+#[tokio::test]
+async fn test_stopped_node() {
+    let (keypair_1, address_1) = generate_peer();
+    let (keypair_2, address_2) = generate_peer();
 
-    let gate = if !subscribe_topics.is_empty() {
-        MessageCounts::new(gate_topic.unwrap())
-    } else {
-        MessageCounts::new(Topic::Mailbox(address))
-    };
-    let message_chain = MessageGateChain::new().append(gate.clone());
+    let (node_1, _message_receiver_1) = node(
+        keypair_1, 
+        30017, 
+        vec![(address_2, Ipv4Addr::new(127, 0, 0, 1), 30018)], 
+        vec![]
+    ).await;
 
-    let node = pchain_network::NetworkHandle::start(config, subscribe_topics, message_chain)
-        .await;
+    let (node_2, mut message_receiver_2) = node(
+        keypair_2,
+        30018,
+        vec![(address_1, Ipv4Addr::new(127, 0, 0, 1), 30017)],
+        vec![]
+    ).await;
 
-    (address, node, gate)
-}
+    // Stop node by PeerCommand::Shutdown
+    drop(node_2);
 
-pub fn public_address(public_key: &PublicKey) -> PublicAddress {
-    let kp = public_key.clone().try_into_ed25519().unwrap();
-    kp.to_bytes()
-}
+    let mut sending_limit = 10;
+    let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
+    let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-#[derive(Clone)]
-pub struct MessageCounts {
-    topic: Topic,
-    /// number of calls to proceed()
-    count_proceed: Arc<Mutex<usize>>,
+    let message = create_sync_req(1);
 
-    /// actual message received
-    message_received: Arc<Mutex<Vec<u8>>>,
-
-    /// source of message
-    origin: Arc<Mutex<PublicAddress>>,
-}
-
-impl MessageCounts {    
-    fn new(topic: Topic) -> Self {
-        Self {
-            topic,
-            count_proceed: Arc::new(Mutex::new(usize::default())),
-            message_received: Arc::new(Mutex::new(Vec::default())),
-            origin: Arc::new(Mutex::new(PublicAddress::default())),
+    loop {
+        tokio::select! {
+            _ = sending_tick.tick() => {
+                node_1.send_hotstuff_rs_msg(address_2, message.clone());
+                if sending_limit == 0 { break }
+                sending_limit -= 1;
+            }
+            _ = receiving_tick.tick() => {
+                if message_receiver_2.try_recv().is_ok() {
+                    panic!("node 2 should not receive messages!")
+                }        
+            }
         }
     }
-
-    async fn received(&self) -> bool {
-        *self.count_proceed.lock().await > 0
-    }
-
-    async fn get_message(&self) -> Vec<u8> {
-        self.message_received.lock().await.to_vec()
-    }
-
-    async fn get_origin(&self) -> PublicAddress {
-        self.origin.lock().await.to_owned()
-    }
 }
 
-#[async_trait]
-impl MessageGate for MessageCounts {
-    fn accepted(&self, topic_hash: &TopicHash) -> bool {
-        self.topic.clone().is(topic_hash)
-    }
-    async fn process(&self, envelope: Envelope) {
-        *self.count_proceed.lock().await += 1;
-        *self.message_received.lock().await = envelope.message;
-        *self.origin.lock().await = envelope.origin;
-    }
+// helper function to generate keypair and public address
+fn generate_peer() -> (Keypair, PublicAddress) {
+    let keypair = ed25519::Keypair::generate();
+    let address = keypair.public().to_bytes();
+    (keypair, address)
+}
+
+pub async fn node(
+    keypair: Keypair,
+    listening_port: u16,
+    boot_nodes: Vec<([u8;32], Ipv4Addr, u16)>,
+    topics_to_subscribe: Vec<Topic>
+) -> (Peer, tokio::sync::mpsc::Receiver<(PublicAddress, Message)>) {
+
+    let local_keypair = pchain_types::cryptography::Keypair::from_keypair_bytes(&keypair.to_bytes()).unwrap();
+    let config = Config {
+        keypair:local_keypair,
+        topics_to_subscribe,
+        listening_port,
+        boot_nodes,
+        outgoing_msgs_buffer_capacity: 8,
+        peer_discovery_interval: 10,
+        kademlia_protocol_name: String::from("/pchain_p2p/1.0.0")
+    };
+
+    let(tx,rx) = tokio::sync::mpsc::channel(100);
+
+    let message_sender = tx.clone();
+    let message_handler = move |msg_origin: [u8;32], msg: Message| {
+        match msg {
+            Message::HotStuffRs(hotstuff_message) => {
+                // process hotstuff message
+                let _ = message_sender.try_send((msg_origin, Message::HotStuffRs(hotstuff_message)));
+            }
+            Message::Mempool(mempool_message) => {
+                // process mempool message
+                let _ = message_sender.try_send((msg_origin, Message::Mempool(mempool_message)));
+            }
+            _ => {}
+        }
+    };
+
+    let peer = Peer::start(config, Box::new(message_handler)).await.unwrap();
+
+    (peer, rx)
 }
