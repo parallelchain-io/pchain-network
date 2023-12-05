@@ -3,156 +3,144 @@
     Licensed under the Apache License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0
 */
 
-//! Messages that can be sent using Gossipsub, as well as chainable "gates" to process them on receipt.
+//! This module defines two main message-related types:
+//! - [Topic]: topics of the messages in the network.
+//! - [Message]: data to be sent in the network.
 //!
-//! This module defines four main types:
-//! - [Message]: arbitrary data that can be sent over Gossipsub.
-//! - [Envelope]: a wrapper over message which contains its origin.
-//! - [MessageGateChain]: a chain of [MessageGate]s.
-//! - [NetworkTopic]: the pub/sub topic of a message.
+//! `pchain-network` only accepts messages with the topics defined in [Topic]. Each topic corresponds
+//! to a variant in [Message], which is an encapsulation of different types of data to be sent
+//! in the pchain-network.
 //!
-//! Message flow starts with a Message received from the network. This message is passed as Envelope into
-//! chain of [MessageGate]. Each gate examinates the message's [NetworkTopic] to decide whether it should be
-//! proceed. If the gate is not interested in the topic, the message is directly passed to the next gate. Otherwise,
-//! the message is proceeded and then the gate can decide whether the message should be passed to next gate, or
-//! terminate this message flow.
 
-use async_trait::async_trait;
+use borsh::{BorshSerialize, BorshDeserialize};
 use libp2p::gossipsub::IdentTopic;
-use pchain_types::cryptography::PublicAddress;
+use pchain_types::{
+    blockchain::TransactionV1,
+    cryptography::{PublicAddress, Sha256Hash},
+    serialization::Serializable,
+};
 
-use crate::conversions;
+/// Hash of the message topic.
+pub type MessageTopicHash = libp2p::gossipsub::TopicHash;
 
-/// The arbitrary user-defined data that is being transmitted within the network.
-pub type Message = Vec<u8>;
-
-/// Envelope encapsulates the message received from the p2p network with the network
-/// information such as sender address.
-#[derive(Clone)]
-pub struct Envelope {
-    /// The origin of the received message
-    pub origin: PublicAddress,
-
-    /// The message encapsulated
-    pub message: Message,
+/// [Topic] defines the topics of the messages in `pchain-network`.
+#[derive(PartialEq, Debug, Clone)]
+pub enum Topic {
+    HotStuffRsBroadcast,
+    HotStuffRsSend(PublicAddress),
+    Mempool,
+    DroppedTxns,
 }
 
-/// MessageGate is a message handler to proceed the message. It is used
-/// with [MessageGateChain] to pass the message to other gate along the chain,
-/// as well as stop passing message to the next gate.
-///
-/// Macro `async_trait` has to be added for using this trait, Example:
-///
-/// ```no_run
-/// struct MyGate {}
-///
-/// #[async_trait]
-/// impl MessageGate for MyGate {
-///     async fn can_proceed(&self, topic_hash: &NetworkTopicHash) -> bool {
-///         // ... topic filtering
-///         true
-///     }
-///     async fn proceed(&self, envelope: Envelope) -> bool {
-///         // ... do something with envelope
-///         false // pass the message to next gate
-///     }
-/// }
-/// ```
-#[async_trait]
-pub trait MessageGate: Send + Sync + 'static {
-    /// check if the message type can be accepted to be proceed
-    async fn can_proceed(&self, topic_hash: &NetworkTopicHash) -> bool;
-
-    /// proceed the message and return true if the chain should be terminated
-    async fn proceed(&self, envelope: Envelope) -> bool;
-}
-
-/// Chain of MessageGate. It consists of a sequence of message handlers.
-/// Each message handler (Gate) implements its own message processing logic. Hence,
-/// the chain of gates defines a complete flow of message processing.
-///
-/// ### Example
-///
-/// To add Gate to the chain:
-/// ```no_run
-/// let chain = MessageGateChain::new()
-///     .chain(message_handler_1)
-///     .chain(message_handler_2);
-/// ```
-#[derive(Default)]
-pub struct MessageGateChain {
-    gates: Vec<Box<dyn MessageGate>>,
-}
-
-impl MessageGateChain {
-    pub fn new() -> Self {
-        Self { gates: Vec::new() }
+impl Topic {
+    pub fn hash(self) -> MessageTopicHash {
+        IdentTopic::from(self).hash()
     }
+}
 
-    /// append a Message Gate at the end of the chain
-    pub fn chain(mut self, gate: impl MessageGate) -> Self {
-        self.gates.push(Box::new(gate));
-        self
+impl From<Topic> for IdentTopic {
+    fn from(topic: Topic) -> Self {
+        let str = match topic {
+            Topic::HotStuffRsBroadcast => "consensus".to_string(),
+            Topic::HotStuffRsSend(addr) => base64url::encode(addr),
+            Topic::Mempool => "mempool".to_string(),
+            Topic::DroppedTxns => "droppedTx".to_string(),
+        };
+        IdentTopic::new(str)
     }
+}
 
-    /// message_in inputs the received message and pass it to the chain of MessageGate
-    pub(crate) async fn message_in(&self, topic_hash: &NetworkTopicHash, envelope: Envelope) {
-        for gate in &self.gates {
-            if gate.can_proceed(topic_hash).await && gate.proceed(envelope.clone()).await {
-                break;
-            }
+
+/// [Message] are structured messages that are sent between ParallelChain Network Peers.
+#[derive(Clone, BorshSerialize, BorshDeserialize)]
+pub enum Message {
+    HotStuffRs(hotstuff_rs::messages::Message),
+    Mempool(TransactionV1),
+    DroppedTxns(DroppedTxnMessage),
+}
+
+impl From<Message> for Vec<u8> {
+    fn from(msg: Message) -> Self {
+        match msg {
+            Message::HotStuffRs(msg) => msg.try_to_vec().unwrap(),
+            Message::Mempool(txn) => Serializable::serialize(&txn),
+            Message::DroppedTxns(msg) => msg.try_to_vec().unwrap(),
         }
     }
 }
 
-#[derive(Debug)]
-/// The Topic of the gossipsub message in the network. It basically wraps over [IdentTopic].
-pub struct NetworkTopic(IdentTopic);
+/// [DroppedTxnMessage] defines message content for [Message::DroppedTxns].
+#[derive(Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
+pub enum DroppedTxnMessage {
+    MempoolDroppedTx {
+        txn: TransactionV1,
+        status_code: DroppedTxnStatusCode,
+    },
+    ExecutorDroppedTx {
+        tx_hash: Sha256Hash,
+        status_code: DroppedTxnStatusCode,
+    },
+}
 
-/// Hash of the Network message topic.
-pub type NetworkTopicHash = libp2p::gossipsub::TopicHash;
+#[derive(Clone)]
+pub enum DroppedTxnStatusCode {
+    Invalid,
+    NonceTooLow,
+    NonceInaccessible,
+}
 
-impl From<NetworkTopic> for IdentTopic {
-    fn from(topic: NetworkTopic) -> Self {
-        topic.0
+impl From<&DroppedTxnStatusCode> for u16 {
+    fn from(status_code: &DroppedTxnStatusCode) -> Self {
+        match status_code {
+            DroppedTxnStatusCode::Invalid => 0x515_u16,
+            DroppedTxnStatusCode::NonceTooLow => 0x516_u16,
+            DroppedTxnStatusCode::NonceInaccessible => 0x517_u16,
+        }
     }
 }
 
-impl From<PublicAddress> for NetworkTopic {
-    fn from(address: PublicAddress) -> Self {
-        Self(IdentTopic::new(conversions::base64_string(address)))
+impl borsh::BorshSerialize for DroppedTxnStatusCode {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        let status_code: u16 = self.into();
+        BorshSerialize::serialize(&status_code, writer)
     }
 }
 
-impl NetworkTopic {
-    pub fn new(topic: String) -> Self {
-        NetworkTopic(IdentTopic::new(topic))
-    }
-
-    pub fn hash(&self) -> libp2p::gossipsub::TopicHash {
-        self.0.hash()
+impl borsh::BorshDeserialize for DroppedTxnStatusCode {
+    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let status_code = match u16::deserialize_reader(reader) {
+            Ok(0x515_u16) => DroppedTxnStatusCode::Invalid,
+            Ok(0x516_u16) => DroppedTxnStatusCode::NonceTooLow,
+            Ok(0x517_u16) => DroppedTxnStatusCode::NonceInaccessible,
+            _ => panic!("Invalid droppedTx status code."),
+        };
+        Ok(status_code)
     }
 }
 
 #[cfg(test)]
 
 mod test {
-    use super::*;
-    use libp2p::identity::Keypair;
+    use libp2p::gossipsub::IdentTopic;
+
+    use super::Topic;
 
     #[test]
-    fn test_network_topic() {
-        // Create new Network topic
-        let network_topic = NetworkTopic::new(String::from("new topic!"));
-        let topic_hash = network_topic.0.hash();
-        let ident_topic = IdentTopic::from(network_topic);
-        assert_eq!(ident_topic.hash(), topic_hash);
+    fn test_message_topic() {
+        let hotstuff_broadcast_topic = Topic::HotStuffRsBroadcast;
+        let ident_topic = IdentTopic::new("consensus".to_string());
+        assert_eq!(hotstuff_broadcast_topic.hash(), ident_topic.hash());
 
-        // Create new Network topic with NetworkTopic::from() should result in same hash as creating with a public address string
-        let test_public_address =
-            conversions::public_address(&Keypair::generate_ed25519().public()).unwrap();
-        let network_topic_from_address = NetworkTopic::from(test_public_address);
-        let network_topic = NetworkTopic::new(String::from(base64url::encode(test_public_address)));
-        assert_eq!(network_topic_from_address.hash(), network_topic.hash());
+        let hotstuff_send_topic = Topic::HotStuffRsSend([1u8; 32]);
+        let ident_topic = IdentTopic::new(base64url::encode([1u8; 32]));
+        assert_eq!(hotstuff_send_topic.hash(), ident_topic.hash());
+
+        let mempool_topic = Topic::Mempool;
+        let ident_topic = IdentTopic::new("mempool".to_string());
+        assert_eq!(mempool_topic.hash(), ident_topic.hash());
+
+        let droppedtxn_topic = Topic::DroppedTxns;
+        let ident_topic = IdentTopic::new("droppedTx".to_string());
+        assert_eq!(droppedtxn_topic.hash(), ident_topic.hash());
     }
 }
