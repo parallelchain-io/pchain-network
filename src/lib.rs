@@ -25,7 +25,7 @@
 //!     kademlia_protocol_name // "/pchain_p2p/1.0.0"
 //! };
 //!
-//! // 2. Create message handlers 
+//! // 2. Create message handler 
 //! let (tx, rx) = tokio::sync::mpsc::channel(100);
 //! let message_sender = tx.clone();
 //! let message_handler = move |msg_origin: [u8;32], msg: Message| {
@@ -37,9 +37,7 @@
 //!         _ => {}
 //!     }
 //! };
-//! let mut message_handlers: Vec<Box<dyn FnMut(PublicAddress, Message) + Send>> = vec![];
-//! message_handlers.push(Box::new(hotstuff_handler));
-//!  
+//! 
 //! // 3. Start P2P network.
 //! let peer = Peer::start(config, Box::new(message_handler))
 //!     .await

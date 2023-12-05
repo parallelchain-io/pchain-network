@@ -19,14 +19,13 @@
 //! ```
 //! let config = Config {...}
 //! ```
-//! // 2. Define the message handlers 
+//! // 2. Define the message handler 
 //! ```
-//! let(tx,rx) = mpsc::channel();
+//! let(tx,rx) = mpsc::channel(100);
 //! let message_sender = tx.clone();
 //! let message_handler = move |msg_origin: [u8;32], msg: Message| {
 //!     let _ = message_sender.send((msg_origin, msg));
 //! };
-//! let mut message_handler: Box<dyn Fn(PublicAddress, Message) + Send> = vec![];
 //!  ```
 //! 3. Start the peer
 //!  ```
@@ -69,7 +68,7 @@ pub struct Peer {
 }
 
 impl Peer {
-/// Constructs a [Peer] from the given configuration and handlers, starting the thread for the p2p network 
+/// Constructs a [Peer] from the given configuration and handler, starting the thread for the p2p network 
 /// 1. Load network configuration to set up transport for the P2P network. 
 /// 2. Peer starts listening on the given config address
 /// 3. Establishes connection to the network by adding bootnodes and subscribing to message [Topic]. 
