@@ -191,15 +191,15 @@ mod test {
 
     use libp2p::{
         gossipsub,
-        identity::{ed25519, PeerId},
+        identity::{PeerId, ed25519},
         Multiaddr,
     };
     use pchain_types::cryptography::{PublicAddress, self};
 
     use crate::{
         config::Config,
-        conversions,
         messages::{MessageTopicHash, Topic},
+        conversions,
     };
 
     use super::Behaviour;

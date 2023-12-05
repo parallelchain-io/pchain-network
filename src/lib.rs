@@ -10,7 +10,7 @@
 //!
 //! ```no_run
 //! use crate::Config;
-//! use crate::peer::Peer;
+//! use crate::Peer;
 //! use crate::messages::Message;
 //!
 //!
@@ -26,22 +26,22 @@
 //! };
 //!
 //! // 2. Create message handlers 
-//! let (tx, rx) =  tokio::sync::mpsc::channel(100);
-//! let hotstuff_sender = tx.clone();
-//! let hotstuff_handler = move |msg_orgin: [u8;32], msg: Message| {
+//! let (tx, rx) = tokio::sync::mpsc::channel(100);
+//! let message_sender = tx.clone();
+//! let message_handler = move |msg_origin: [u8;32], msg: Message| {
 //!     match msg {
 //!         Message::HotStuffRs(hotstuff_message) => {
-//!             //process hotstuff message
+//!             // process hotstuff message
 //!             let _ = hotstuff_sender.try_send((msg_origin, Message::HotStuffRs(hotstuff_message)));
 //!         }
 //!         _ => {}
-//!     }  
+//!     }
 //! };
 //! let mut message_handlers: Vec<Box<dyn FnMut(PublicAddress, Message) + Send>> = vec![];
 //! message_handlers.push(Box::new(hotstuff_handler));
 //!  
 //! // 3. Start P2P network.
-//! let peer = Peer::start(config, message_handlers)
+//! let peer = Peer::start(config, Box::new(message_handler))
 //!     .await
 //!     .unwrap();
 //! 

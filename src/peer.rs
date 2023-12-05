@@ -8,9 +8,9 @@
 //! It starts a ParallelChain Network peer and keeps the peer alive -- the peer stops working when the
 //! thread is dropped.
 //!
-//! To start a pchain-network peer, users pass a [Config] instance and message handlers into Peer::start().
+//! To start a pchain-network peer, users pass a [Config] instance and the message handler into Peer::start().
 //! [Config] contains the peer's keypair, or other deployment-specific parameters, such as listening ports, bootstrap nodes etc. 
-//! Users need to define the message handlers for processing the [Message]. 
+//! Users need to define the message handler for processing the [Message]. 
 //! Starting Peer will return a Sender for delivering PeerCommand to the thread. 
 //! 
 //! Example:
@@ -19,19 +19,18 @@
 //! ```
 //! let config = Config {...}
 //! ```
-//! 2. Define the message handlers 
+//! // 2. Define the message handlers 
 //! ```
 //! let(tx,rx) = mpsc::channel();
 //! let message_sender = tx.clone();
 //! let message_handler = move |msg_origin: [u8;32], msg: Message| {
 //!     let _ = message_sender.send((msg_origin, msg));
 //! };
-//! let mut message_handlers: Vec<Box<dyn Fn(PublicAddress, Message) + Send>> = vec![];
-//! message_handlers.push(Box::new(message_handler));
+//! let mut message_handler: Box<dyn Fn(PublicAddress, Message) + Send> = vec![];
 //!  ```
 //! 3. Start the peer
 //!  ```
-//! let peer = Peer::start(config, message_handlers).await.unwrap();
+//! let peer = Peer::start(config, message_handler).await.unwrap();
 //!  ```
 //! 4. Send PeerCommand
 //!  ```

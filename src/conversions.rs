@@ -7,7 +7,7 @@
 //!
 //! The following are implemented for converting between different types:
 //!     - From<[PublicAddress]> for [ParallelChain PublicAddress](pchain_types::cryptography::PublicAddress)
-//!     - TryFrom<PeerId> for [PublicAddress]
+//!     - TryFrom<[PeerId]> for [PublicAddress]
 //!     - TryFrom<[PublicAddress]> for [PeerId]
 //!     - filter_gossipsub_messages([libp2p::gossipsub::Message], [pchain_types::cryptography::PublicAddress]) to [Message]
 
@@ -120,7 +120,6 @@ impl From<std::io::Error> for MessageConversionError {
         MessageConversionError::DeserializeError(error)
     }
 }
-
 
 /// Convert ip address [std::net::Ipv4Addr] and port [u16] into MultiAddr [libp2p::Multiaddr] type
 pub fn multi_addr(ip_address: Ipv4Addr, port: u16) -> Multiaddr {
