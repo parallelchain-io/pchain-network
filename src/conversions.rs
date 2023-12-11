@@ -11,32 +11,29 @@
 //!     - TryFrom<[PublicAddress]> for [PeerId]
 //!     - filter_gossipsub_messages([libp2p::gossipsub::Message], [pchain_types::cryptography::PublicAddress]) to [Message]
 
-use libp2p::identity::{self, DecodingError, OtherVariantError, PeerId,
-    ed25519::PublicKey
-};
+use libp2p::identity::{self, ed25519, DecodingError, OtherVariantError, PeerId};
 use libp2p::Multiaddr;
 use std::net::Ipv4Addr;
 use borsh::BorshDeserialize;
+use pchain_types::{cryptography, rpc};
 
 use crate::messages::{
-    DroppedTxnMessage, 
     Message,
-    Topic::{HotStuffRsBroadcast,HotStuffRsSend,Mempool,DroppedTxns}
+    Topic::{HotStuffRsBroadcast,HotStuffRsSend,Mempool}
 };
 use crate::config::fullnode_topics;
 
-
-/// PublicAddress(PublicAddress) is wrapper around [PublicAddress](pchain_types::cryptography::PublicAddress).
-pub struct PublicAddress(pchain_types::cryptography::PublicAddress);
+/// [PublicAddress(PublicAddress)] is wrapper around [PublicAddress](cryptography::PublicAddress).
+pub struct PublicAddress(cryptography::PublicAddress);
 
 impl PublicAddress {
-    pub fn new(addr: pchain_types::cryptography::PublicAddress) -> Self {
+    pub fn new(addr: cryptography::PublicAddress) -> Self {
         PublicAddress(addr)
     }
 }
 
-impl From<PublicAddress> for pchain_types::cryptography::PublicAddress {
-    fn from(peer: PublicAddress) -> pchain_types::cryptography::PublicAddress {
+impl From<PublicAddress> for cryptography::PublicAddress {
+    fn from(peer: PublicAddress) -> cryptography::PublicAddress {
         peer.0
     }
 }
@@ -55,7 +52,7 @@ impl TryFrom<PublicAddress> for PeerId {
     type Error = DecodingError;
 
     fn try_from(public_addr: PublicAddress) -> Result<Self, Self::Error> {
-        let kp = PublicKey::try_from_bytes(&public_addr.0)?;
+        let kp = ed25519::PublicKey::try_from_bytes(&public_addr.0)?;
         let public_key: identity::PublicKey = kp.into();
         Ok(public_key.to_peer_id())
     }
@@ -81,30 +78,25 @@ impl From<DecodingError> for PublicAddressTryFromPeerIdError {
 
 /// converts [Message](libp2p::gossipsub::Message) to [Message](Message) while 
 /// filtering for message topics that can be forwarded to fullnode
-pub fn filter_gossipsub_messages(message: libp2p::gossipsub::Message, local_public_address: pchain_types::cryptography::PublicAddress) 
--> Result<Message, MessageConversionError> {
+pub fn filter_gossipsub_messages(message: libp2p::gossipsub::Message, local_public_address: cryptography::PublicAddress) -> Result<Message, MessageConversionError> {
     let (topic_hash, data) = (message.topic, message.data);
     let mut data = data.as_slice();
-
-    let topic = fullnode_topics(local_public_address)
-        .into_iter()
-        .find(|t| t.clone().hash() == topic_hash)
-        .ok_or(InvalidTopicError)?;
-    
-    match topic {
-        HotStuffRsBroadcast | HotStuffRsSend(_) => {
-            let message = hotstuff_rs::messages::Message::deserialize(&mut data).map(Message::HotStuffRs)?;
-            Ok(message)
-        },
-        Mempool => {
-            let message = pchain_types::blockchain::TransactionV1::deserialize(&mut data).map(Message::Mempool)?;
-            Ok(message)
-        },
-        DroppedTxns => {
-            let message = DroppedTxnMessage::deserialize(&mut data).map(Message::DroppedTxns)?;
-            Ok(message)
+        
+        let topic = fullnode_topics(local_public_address)
+            .into_iter()
+            .find(|t| t.clone().hash() == topic_hash)
+            .ok_or(InvalidTopicError)?;
+        
+        match topic {
+            HotStuffRsBroadcast | HotStuffRsSend(_) => {
+                let message = hotstuff_rs::messages::Message::deserialize(&mut data).map(Message::HotStuffRs)?;
+                Ok(message)
+            },
+            Mempool => {
+                let message = rpc::TransactionV1OrV2::deserialize(&mut data).map(Message::Mempool)?;
+                Ok(message)
+            },
         }
-    }
 }
 
 #[derive(Debug)]

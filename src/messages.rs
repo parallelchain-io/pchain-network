@@ -15,9 +15,8 @@
 use borsh::{BorshSerialize, BorshDeserialize};
 use libp2p::gossipsub::IdentTopic;
 use pchain_types::{
-    blockchain::TransactionV1,
-    cryptography::{PublicAddress, Sha256Hash},
-    serialization::Serializable,
+    cryptography::PublicAddress,
+    rpc::TransactionV1OrV2,
 };
 
 /// Hash of the message topic.
@@ -29,7 +28,6 @@ pub enum Topic {
     HotStuffRsBroadcast,
     HotStuffRsSend(PublicAddress),
     Mempool,
-    DroppedTxns,
 }
 
 impl Topic {
@@ -41,10 +39,9 @@ impl Topic {
 impl From<Topic> for IdentTopic {
     fn from(topic: Topic) -> Self {
         let str = match topic {
-            Topic::HotStuffRsBroadcast => "consensus".to_string(),
-            Topic::HotStuffRsSend(addr) => base64url::encode(addr),
+            Topic::HotStuffRsBroadcast => "hotstuff_rs".to_string(),
+            Topic::HotStuffRsSend(addr) => String::from("hotstuff_rs/") + &base64url::encode(addr),
             Topic::Mempool => "mempool".to_string(),
-            Topic::DroppedTxns => "droppedTx".to_string(),
         };
         IdentTopic::new(str)
     }
@@ -55,66 +52,19 @@ impl From<Topic> for IdentTopic {
 #[derive(Clone, BorshSerialize, BorshDeserialize)]
 pub enum Message {
     HotStuffRs(hotstuff_rs::messages::Message),
-    Mempool(TransactionV1),
-    DroppedTxns(DroppedTxnMessage),
+    Mempool(TransactionV1OrV2),
 }
 
 impl From<Message> for Vec<u8> {
     fn from(msg: Message) -> Self {
         match msg {
             Message::HotStuffRs(msg) => msg.try_to_vec().unwrap(),
-            Message::Mempool(txn) => Serializable::serialize(&txn),
-            Message::DroppedTxns(msg) => msg.try_to_vec().unwrap(),
+            Message::Mempool(txn) => {
+                let mut data: Vec<u8> = Vec::new();
+                TransactionV1OrV2::serialize(&txn, &mut data).unwrap();
+                data
+            }
         }
-    }
-}
-
-/// [DroppedTxnMessage] defines message content for [Message::DroppedTxns].
-#[derive(Clone, borsh::BorshSerialize, borsh::BorshDeserialize)]
-pub enum DroppedTxnMessage {
-    MempoolDroppedTx {
-        txn: TransactionV1,
-        status_code: DroppedTxnStatusCode,
-    },
-    ExecutorDroppedTx {
-        tx_hash: Sha256Hash,
-        status_code: DroppedTxnStatusCode,
-    },
-}
-
-#[derive(Clone)]
-pub enum DroppedTxnStatusCode {
-    Invalid,
-    NonceTooLow,
-    NonceInaccessible,
-}
-
-impl From<&DroppedTxnStatusCode> for u16 {
-    fn from(status_code: &DroppedTxnStatusCode) -> Self {
-        match status_code {
-            DroppedTxnStatusCode::Invalid => 0x515_u16,
-            DroppedTxnStatusCode::NonceTooLow => 0x516_u16,
-            DroppedTxnStatusCode::NonceInaccessible => 0x517_u16,
-        }
-    }
-}
-
-impl borsh::BorshSerialize for DroppedTxnStatusCode {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        let status_code: u16 = self.into();
-        BorshSerialize::serialize(&status_code, writer)
-    }
-}
-
-impl borsh::BorshDeserialize for DroppedTxnStatusCode {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let status_code = match u16::deserialize_reader(reader) {
-            Ok(0x515_u16) => DroppedTxnStatusCode::Invalid,
-            Ok(0x516_u16) => DroppedTxnStatusCode::NonceTooLow,
-            Ok(0x517_u16) => DroppedTxnStatusCode::NonceInaccessible,
-            _ => panic!("Invalid droppedTx status code."),
-        };
-        Ok(status_code)
     }
 }
 
@@ -128,19 +78,15 @@ mod test {
     #[test]
     fn test_message_topic() {
         let hotstuff_broadcast_topic = Topic::HotStuffRsBroadcast;
-        let ident_topic = IdentTopic::new("consensus".to_string());
+        let ident_topic = IdentTopic::new("hotstuff_rs".to_string());
         assert_eq!(hotstuff_broadcast_topic.hash(), ident_topic.hash());
 
         let hotstuff_send_topic = Topic::HotStuffRsSend([1u8; 32]);
-        let ident_topic = IdentTopic::new(base64url::encode([1u8; 32]));
+        let ident_topic = IdentTopic::new(String::from("hotstuff_rs/") + &base64url::encode([1u8; 32]));
         assert_eq!(hotstuff_send_topic.hash(), ident_topic.hash());
 
         let mempool_topic = Topic::Mempool;
         let ident_topic = IdentTopic::new("mempool".to_string());
         assert_eq!(mempool_topic.hash(), ident_topic.hash());
-
-        let droppedtxn_topic = Topic::DroppedTxns;
-        let ident_topic = IdentTopic::new("droppedTx".to_string());
-        assert_eq!(droppedtxn_topic.hash(), ident_topic.hash());
     }
 }

@@ -1,4 +1,5 @@
 use std::{net::Ipv4Addr, time::Duration};
+use tokio::sync::mpsc;
 
 use borsh::BorshSerialize;
 use hotstuff_rs::messages::SyncRequest;
@@ -8,9 +9,15 @@ use pchain_network::{
     config::Config,
     messages::{Topic, Message},
 };
-use pchain_types::{blockchain::TransactionV1, cryptography::PublicAddress};
 
-fn base_tx(signer: PublicAddress) -> TransactionV1 {
+use pchain_types::{
+    blockchain::{TransactionV1, TransactionV2},
+    rpc,
+    cryptography,
+    cryptography::PublicAddress
+};
+
+fn base_tx_v1(signer: PublicAddress) -> TransactionV1 {
     TransactionV1 {
         signer,
         nonce: 0,
@@ -20,6 +27,19 @@ fn base_tx(signer: PublicAddress) -> TransactionV1 {
         priority_fee_per_gas: 0,
         hash: [0u8; 32],
         signature: [0u8; 64],
+    }
+}
+
+fn base_tx_v2(signer: PublicAddress) -> TransactionV2 {
+    TransactionV2 {
+        signer,
+        nonce: 0,
+        commands: vec![],
+        gas_limit: 200000,
+        max_base_fee_per_gas: 8,
+        priority_fee_per_gas: 0,
+        hash: [1u8; 32],
+        signature: [1u8; 64],
     }
 }
 
@@ -57,12 +77,12 @@ async fn test_broadcast() {
     let mut sending_tick = tokio::time::interval(Duration::from_secs(1));
     let mut receiving_tick = tokio::time::interval(Duration::from_secs(2));
 
-    let message = Message::Mempool(base_tx(address_1));
+    let message = Message::Mempool(rpc::TransactionV1OrV2::V1(base_tx_v1(address_1)));
 
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.broadcast_mempool_msg(base_tx(address_1));
+                node_1.broadcast_mempool_msg(rpc::TransactionV1OrV2::V1(base_tx_v1(address_1)));
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
@@ -147,7 +167,7 @@ async fn test_send_to() {
 async fn test_send_to_only_specific_receiver() {
     let (keypair_1, address_1) = generate_peer();
     let (keypair_2, address_2) = generate_peer();
-    let (keypair_3, address_3) = generate_peer(); 
+    let (keypair_3, address_3) = generate_peer();
 
     let (node_1, _message_receiver_1) = node(
         keypair_1,
@@ -380,7 +400,7 @@ async fn test_broadcast_different_topics() {
     loop {
         tokio::select! {
             _ = sending_tick.tick() => {
-                node_1.broadcast_mempool_msg(base_tx(address_1));
+                node_1.broadcast_mempool_msg(rpc::TransactionV1OrV2::V1(base_tx_v1(address_1)));
                 if sending_limit == 0 { break }
                 sending_limit -= 1;
             }
@@ -452,11 +472,10 @@ pub async fn node(
     listening_port: u16,
     boot_nodes: Vec<([u8;32], Ipv4Addr, u16)>,
     topics_to_subscribe: Vec<Topic>
-) -> (Peer, tokio::sync::mpsc::Receiver<(PublicAddress, Message)>) {
-
-    let local_keypair = pchain_types::cryptography::Keypair::from_keypair_bytes(&keypair.to_bytes()).unwrap();
+) -> (Peer, mpsc::Receiver<(PublicAddress, Message)>) {
+    let local_keypair = cryptography::Keypair::from_keypair_bytes(&keypair.to_bytes()).unwrap();
     let config = Config {
-        keypair:local_keypair,
+        keypair: local_keypair,
         topics_to_subscribe,
         listening_port,
         boot_nodes,
@@ -465,7 +484,7 @@ pub async fn node(
         kademlia_protocol_name: String::from("/pchain_p2p/1.0.0")
     };
 
-    let(tx,rx) = tokio::sync::mpsc::channel(100);
+    let(tx,rx) = mpsc::channel(100);
 
     let message_sender = tx.clone();
     let message_handler = move |msg_origin: [u8;32], msg: Message| {
@@ -478,7 +497,6 @@ pub async fn node(
                 // process mempool message
                 let _ = message_sender.try_send((msg_origin, Message::Mempool(mempool_message)));
             }
-            _ => {}
         }
     };
 

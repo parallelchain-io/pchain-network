@@ -9,7 +9,7 @@
 //!
 //! ```no_run
 //!     let config = Config {
-//!         keypair, //pchain_types::cryptography::Keypair,
+//!         keypair: pchain_types::cryptography::Keypair,
 //!         topics_to_subscribe: vec![Topic::HotStuffRsBroadcast],
 //!         listening_port: 25519,
 //!         boot_nodes: vec![],
@@ -53,6 +53,5 @@ pub(crate) fn fullnode_topics(public_address: PublicAddress) -> Vec<Topic> {
         Topic::HotStuffRsBroadcast,
         Topic::HotStuffRsSend(public_address),
         Topic::Mempool,
-        Topic::DroppedTxns,
     ]
 }

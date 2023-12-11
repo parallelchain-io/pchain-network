@@ -8,55 +8,57 @@
 //! It starts a ParallelChain Network peer and keeps the peer alive -- the peer stops working when the
 //! thread is dropped.
 //!
-//! To start a pchain-network peer, users pass a [Config] instance and message handlers into Peer::start().
+//! To start a pchain-network peer, users pass a [Config] instance and the message handler into Peer::start().
 //! [Config] contains the peer's keypair, or other deployment-specific parameters, such as listening ports, bootstrap nodes etc. 
 //! Users need to define the message handler for processing the [Message]. 
 //! Starting Peer will return a Sender for delivering PeerCommand to the thread. 
 //! 
 //! Example:
+//! 
 //! 1. Define the configurations
 //! ```
 //! let config = Config {...}
 //! ```
-//! 2. Define the message handler 
+//! // 2. Define the message handler 
 //! ```
-//! let(tx,rx) = mpsc::channel();
+//! let(tx,rx) = mpsc::channel(100);
 //! let message_sender = tx.clone();
 //! let message_handler = move |msg_origin: [u8;32], msg: Message| {
 //!     let _ = message_sender.send((msg_origin, msg));
 //! };
-//! ```
+//!  ```
 //! 3. Start the peer
-//! ```
-//! let peer = Peer::start(config, Box::new(message_handler)).await.unwrap();
-//! ```
+//!  ```
+//! let peer = Peer::start(config, message_handler).await.unwrap();
+//!  ```
 //! 4. Send PeerCommand
-//! ```
+//!  ```
 //! peer.broadcast_mempool_msg(txn);
-//! ```
+//!  ```
 
 use futures::StreamExt;
 use tokio::task::JoinHandle;
 use libp2p::{
+    kad::KBucketKey,
     gossipsub,
-    identify, identity::{self, ed25519::Keypair}, noise,
+    identify, identity::{self, ed25519::Keypair, PeerId}, noise,
     SwarmBuilder,
     swarm::SwarmEvent,
     tcp,
 };
+
 use libp2p_mplex::MplexConfig;
-use pchain_types::cryptography::PublicAddress;
-use pchain_types::blockchain::TransactionV1;
-use std::net::Ipv4Addr;
-use std::time::Duration;
+use pchain_types::{cryptography::PublicAddress, rpc::TransactionV1OrV2};
+use std::{net::Ipv4Addr,time::Duration};
 
 use crate::{
     behaviour::{Behaviour, NetworkEvent},
     conversions,
-    messages::{DroppedTxnMessage,Message, Topic},
+    messages::{Message, Topic},
     config::Config,
 };
 
+const MAX_REPLICA_DISTANCE: u32 = 255;
 
 pub struct Peer {
     /// Network handle for the [tokio::task] which is the main thread for the p2p network 
@@ -68,7 +70,7 @@ pub struct Peer {
 }
 
 impl Peer {
-/// Constructs a [Peer] from the given configuration and handlers, starting the thread for the p2p network 
+/// Constructs a [Peer] from the given configuration and handler, starting the thread for the p2p network 
 /// 1. Load network configuration to set up transport for the P2P network. 
 /// 2. Peer starts listening on the given config address
 /// 3. Establishes connection to the network by adding bootnodes and subscribing to message [Topic]. 
@@ -78,7 +80,7 @@ impl Peer {
 
         let mut swarm = set_up_transport(&config)
         .await
-        .map_err(PeerStartError::SystemConfigError)?;
+        .map_err(PeerStartError::BuildTransportError)?;
 
         swarm.listen_on(conversions::multi_addr(
                 Ipv4Addr::new(0, 0, 0, 0), 
@@ -98,17 +100,10 @@ impl Peer {
         )
     }
 
-    pub fn broadcast_mempool_msg(&self, txn: TransactionV1) {
+    pub fn broadcast_mempool_msg(&self, txn: TransactionV1OrV2) {
         let _ = self.sender.try_send(PeerCommand::Publish(
             Topic::Mempool,
             Message::Mempool(txn),
-        ));
-    }
-
-    pub fn broadcast_dropped_tx_msg(&self, msg: DroppedTxnMessage) {
-        let _ = self.sender.try_send(PeerCommand::Publish(
-            Topic::DroppedTxns,
-            Message::DroppedTxns(msg),
         ));
     }
 
@@ -145,7 +140,7 @@ pub(crate) enum PeerCommand {
 }
 
 /// Loads the network configuration from [Config] and build the transport for the P2P network
-async fn set_up_transport(config: &Config) -> Result<libp2p::Swarm<Behaviour>,std::io::Error> {
+async fn set_up_transport(config: &Config) -> Result<libp2p::Swarm<Behaviour>,libp2p::noise::Error> {
     // Read network configuration 
     let local_keypair = &config.keypair;
     let local_public_address: PublicAddress = local_keypair.verifying_key().to_bytes();
@@ -168,7 +163,7 @@ async fn set_up_transport(config: &Config) -> Result<libp2p::Swarm<Behaviour>,st
             tcp::Config::new().nodelay(true), 
             noise::Config::new,
             (MplexConfig::default, libp2p::yamux::Config::default)
-        ).unwrap()
+        )?
         .with_behaviour(|_| behaviour).unwrap()
         .with_swarm_config(|config| config.with_idle_connection_timeout(Duration::from_secs(20)))
         .build();
@@ -227,7 +222,13 @@ fn establish_network_connections(mut swarm: libp2p::Swarm<Behaviour> , config: &
 fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, mut message_handler: Box<dyn FnMut(PublicAddress, Message) + Send>) -> 
     (JoinHandle<()>,tokio::sync::mpsc::Sender<PeerCommand>) {
     // 4. Start p2p networking
-    let local_public_address: PublicAddress = config.keypair.verifying_key().to_bytes();
+    let local_keypair = &config.keypair;
+    let local_public_address: PublicAddress = local_keypair.verifying_key().to_bytes();
+    let local_libp2p_keypair = Keypair::try_from_bytes(config.keypair.to_keypair_bytes().as_mut_slice()).unwrap();
+    let local_peer_id = identity::Keypair::from(local_libp2p_keypair.clone())
+        .public()
+        .to_peer_id();
+
     let (sender, mut receiver) =
         tokio::sync::mpsc::channel::<PeerCommand>(config.outgoing_msgs_buffer_capacity);
     let mut discover_tick =
@@ -306,9 +307,29 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, mu
                         info.listen_addrs.iter().for_each(|a| {
                             swarm.behaviour_mut().add_address(&peer_id, a.clone());
                         });
+
+                        // subscribe to individual topic of closest replicas when added to Kademlia Kbucket
+                        if let Ok(addr) = conversions::PublicAddress::try_from(peer_id) {
+                            let public_addr: PublicAddress = addr.into();
+                            let topic = Topic::HotStuffRsSend(public_addr);
+                            if !swarm.behaviour().is_subscribed(&topic.clone().hash())
+                                && is_close_peer(&local_peer_id, &peer_id)
+                            {
+                                let _ = swarm.behaviour_mut().subscribe(vec![topic]);
+                            }
+                        }
                     }
                     SwarmEvent::ConnectionClosed { peer_id, .. } => {
                         swarm.behaviour_mut().remove_peer(&peer_id);
+
+                        // unsubscribe from individual topic of replicas if disconnected
+                        if let Ok(addr) = conversions::PublicAddress::try_from(peer_id) {
+                            let public_addr: PublicAddress = addr.into();
+                            let topic = Topic::HotStuffRsSend(public_addr);
+                            if swarm.behaviour().is_subscribed(&topic.clone().hash()) {
+                                let _ = swarm.behaviour_mut().unsubscribe(vec![topic]);
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -319,10 +340,22 @@ fn start_event_handling(mut swarm: libp2p::Swarm<Behaviour>, config: &Config, mu
     (network_thread_handle, sender)
 }
 
+/// Check the distance between 2 peers. Subscribe to new peer's individual topic
+/// if the distance is below [MAX_REPLICA_DISTANCE]
+fn is_close_peer(peer_1: &PeerId, peer_2: &PeerId) -> bool {
+    let peer_1_key = KBucketKey::from(*peer_1);
+    let peer_2_key = KBucketKey::from(*peer_2);
+    // returns the distance in base2 logarithm ranging from 0 - 256
+    let distance = KBucketKey::distance(&peer_1_key, &peer_2_key)
+        .ilog2()
+        .unwrap_or(0);
+    distance < MAX_REPLICA_DISTANCE
+}
+
 #[derive(Debug)]
 pub enum PeerStartError {
-    /// Failed to read from system configuration path
-    SystemConfigError(std::io::Error),
+    /// Error building TCP transport
+    BuildTransportError(libp2p::noise::Error),
 
     /// Failed to subscribe to a topic on gossipsub
     SubscriptionError(libp2p::gossipsub::SubscriptionError),

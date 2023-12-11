@@ -77,7 +77,7 @@ impl Behaviour {
     }
 
     fn kad_config(peer_id: PeerId, protocol_name: String) -> kad::Behaviour<MemoryStore> {
-        let protocol_name = StreamProtocol::try_from_owned(protocol_name).unwrap();
+        let protocol_name: StreamProtocol = StreamProtocol::try_from_owned(protocol_name).unwrap();
         let kad_config = kad::Config::default()
             .set_protocol_names(vec![protocol_name])
             .set_record_filtering(kad::StoreInserts::FilterBoth)
@@ -96,24 +96,11 @@ impl Behaviour {
     }
 
     fn gossipsub_config(keypair: &Keypair) -> gossipsub::Behaviour {
-        let build_msg_id = |msg: &gossipsub::Message| {
-            let mut id_str = msg.topic.to_string();
-            let src_peer_id = match msg.source {
-                Some(src) => base64url::encode(src.to_bytes()),
-                None => "none".to_string(),
-            };
-            id_str.push_str(&src_peer_id);
-            id_str.push_str(&msg.sequence_number.unwrap_or_default().to_string());
-            MessageId::from(id_str)
-        };
-
         let gossip = gossipsub::Behaviour::new(
             MessageAuthenticity::Signed(keypair.clone().into()),
             ConfigBuilder::default()
                 .max_transmit_size(MAX_TRANSMIT_SIZE * MEGABYTES) // block size is limitted to 2 MB. Multiply by factor of safety = 2.
-                .message_id_fn(build_msg_id)
                 .heartbeat_interval(Duration::from_secs(HEARTBEAT_INTERVAL))
-                .allow_self_origin(true)
                 .build()
                 .unwrap(),
         )
@@ -141,6 +128,15 @@ impl Behaviour {
     pub fn subscribe(&mut self, topics: Vec<Topic>) -> Result<(), gossipsub::SubscriptionError> {
         for topic in topics {
             self.gossip.subscribe(&topic.into())?;
+        }
+
+        Ok(())
+    }
+
+    /// Unsubscribe from [Topic]
+    pub fn unsubscribe(&mut self, topics: Vec<Topic>) -> Result<(), gossipsub::PublishError> {
+        for topic in topics {
+            self.gossip.unsubscribe(&topic.into())?;
         }
 
         Ok(())
@@ -227,7 +223,7 @@ mod test {
             peer_discovery_interval: 10,
             kademlia_protocol_name: String::from("/test"),
         };
-        
+
         let public_address = config.keypair.verifying_key().to_bytes();
 
         let behaviour = Behaviour::new(
@@ -309,7 +305,7 @@ mod test {
             source: None,
             data: vec![],
             sequence_number: None,
-            topic: Topic::DroppedTxns.hash(),
+            topic: Topic::Mempool.hash(),
         };
 
         let subscribed_topics: Vec<&MessageTopicHash> = peer.behaviour.gossip.topics().collect();
