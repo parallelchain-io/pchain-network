@@ -19,7 +19,7 @@ futures = "0.3.21"
 hotstuff_rs = "0.3"
 libp2p = { version = "0.52.1", features = ["dns", "gossipsub", "identify", "ping", "tcp", "kad", "noise", "yamux", "macros", "tokio"]}
 log = "0.4"
-pchain-types = { git = "https://github.com/parallelchain-io/pchain-types-rust" }
+pchain-types = { git = "https://github.com/parallelchain-io/pchain-types-rust", branch = "dev/v0.5.0" }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
 libp2p-mplex = "0.40.0"
 
