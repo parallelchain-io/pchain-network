@@ -8,13 +8,13 @@ ParallelChain Network is a combination of **4** [libp2p](https://crates.io/crate
 3. [Ping](https://github.com/libp2p/specs/blob/master/ping/ping.md) lets peers quickly check the liveness of other peers.
 4. [Gossipsub](https://github.com/libp2p/specs/tree/master/pubsub/gossipsub) implements the primary useful function of ParallelChain Network: general publish/subscribe messaging.
 
+## Compatibility
+
+This version (**v0.6.0**) of pchain-network implements **v0.5** of the ParallelChain Protocol (which is currently still in beta).
+
 ## Usage
 
 Starting a `pchain_network` peer: [docs.rs](https://docs.rs/pchain_network/0.4.2/pchain_network/#starting-a-peer).
-
-## Versioning
-
-The version of this library reflects the version of the ParallelChain Protocol which it implements. For example, the current version is 0.4.2, and this implements protocol version 0.4. Patch version increases are not guaranteed to be non-breaking.
 
 ## Opening an issue
 
